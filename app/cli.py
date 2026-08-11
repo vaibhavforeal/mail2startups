@@ -5,7 +5,7 @@ from app.config import get_settings
 from app.db import get_engine, init_db as _init_db, make_session
 from app.enrich.hunter import HunterClient
 from app.models import Contact, Startup
-from app.scraper.hunt import hunt_all
+from app.scraper.hunt import hunt_all, hunt_startup
 from app.scraper.ingest import ingest_records
 from app.scraper.sources import get_source
 
@@ -64,15 +64,14 @@ def stats():
             select(Startup.status, func.count()).group_by(Startup.status)).all()
         by_source = session.execute(
             select(Startup.source, func.count()).group_by(Startup.source)).all()
+        by_found_via = session.execute(
+            select(Contact.found_via, func.count()).group_by(Contact.found_via)).all()
     typer.echo("By status:")
     for status, count in by_status:
         typer.echo(f"  {status.value}: {count}")
     typer.echo("By source:")
     for source, count in by_source:
         typer.echo(f"  {source}: {count}")
-    with _session() as session:
-        by_found_via = session.execute(
-            select(Contact.found_via, func.count()).group_by(Contact.found_via)).all()
     typer.echo("Contacts by source:")
     for found_via, count in by_found_via:
         typer.echo(f"  {found_via}: {count}")
@@ -95,14 +94,12 @@ def hunt(
     enricher = None if no_enrich else _build_enricher(settings)
     with _session() as session:
         if domain:
-            from app.models import Startup, StartupStatus
             startup = session.scalars(
                 select(Startup).where(Startup.domain == domain)
             ).first()
             if startup is None:
                 typer.echo(f"No startup with domain {domain}", err=True)
                 raise typer.Exit(code=1)
-            from app.scraper.hunt import hunt_startup
             results = [hunt_startup(session, startup, enricher=enricher,
                                     monthly_limit=settings.hunter_monthly_limit)]
         else:

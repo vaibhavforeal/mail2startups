@@ -39,7 +39,6 @@ Hunting is idempotent: each run processes only startups still in `discovered`
 status and advances them to `enriched`. Paid enrichment (Hunter, ~25/mo free)
 is consulted only when site crawling and pattern guessing find no usable
 contact, and remaining monthly credits are tracked in the database.
-```
 
 ## Tests
 
