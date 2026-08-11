@@ -123,3 +123,56 @@ def extract_people(html: str) -> list[Person]:
             seen.add(name)
             people.append(Person(name=name, role=role))
     return people
+
+
+_NON_ALNUM_RE = re.compile(r"[^a-z]")
+
+
+def _name_parts(full_name: str) -> list[str]:
+    parts = []
+    for chunk in full_name.strip().lower().split():
+        cleaned = _NON_ALNUM_RE.sub("", chunk)
+        if cleaned:
+            parts.append(cleaned)
+    return parts
+
+
+def guess_email_candidates(full_name: str, domain: str, role: str = "") -> list[CandidateContact]:
+    if not domain:
+        return []
+    parts = _name_parts(full_name)
+    if not parts:
+        return []
+
+    first = parts[0]
+    last = parts[-1]
+    patterns: list[tuple[str, float]] = []
+    if first != last:
+        f = first[0]
+        patterns = [
+            (f"{first}.{last}", 0.7),
+            (f"{f}{last}", 0.6),
+            (f"{first}", 0.5),
+            (f"{first}{last}", 0.5),
+            (f"{first}_{last}", 0.4),
+            (f"{f}.{last}", 0.35),
+            (f"{last}", 0.25),
+        ]
+    else:
+        patterns = [(first, 0.5)]
+
+    out: list[CandidateContact] = []
+    best: dict[str, float] = {}
+    for local, confidence in patterns:
+        email = f"{local}@{domain}".lower()
+        if best.get(email, -1.0) >= confidence:
+            continue
+        best[email] = confidence
+        out.append(CandidateContact(
+            email=email,
+            name=full_name,
+            role=role,
+            found_via="pattern_guess",
+            confidence=confidence,
+        ))
+    return out
