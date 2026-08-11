@@ -1,3 +1,5 @@
+import json
+
 import httpx
 from sqlalchemy import select
 
@@ -160,3 +162,29 @@ def test_hunt_enricher_failure_does_not_burn_credit(session):
     )
     # Credit is recorded only after a successful call, so the failed call burned nothing.
     assert usage.usage_this_month(session, "hunter") == 0
+
+
+def test_hunt_all_contains_malformed_provider_response(session):
+    # A provider returning HTTP 200 with a non-JSON body makes resp.json() raise
+    # json.JSONDecodeError (a ValueError, NOT an httpx.HTTPError). It must still be
+    # contained per-startup rather than aborting the whole batch.
+    a = _make_startup(session, name="A", domain="a.io")
+    _make_startup(session, name="B", domain="b.io")  # second startup must still be processed
+
+    def flaky_founder_search(name, **kw):
+        if name == "A":
+            raise json.JSONDecodeError("Expecting value", "<html>rate limited</html>", 0)
+        return []
+
+    results = hunt_all(
+        session, limit=10,
+        crawler=lambda domain, client=None, paths=None: [],
+        founder_search=flaky_founder_search,
+        resolver=FakeResolver(),
+    )
+    assert len(results) == 2  # the malformed-response ValueError did not abort the batch
+
+    a_events = session.scalars(
+        select(Event).where(Event.startup_id == a.id, Event.kind == "scrape_failed")
+    ).all()
+    assert any(e.payload["reason"] == "provider_error" for e in a_events)

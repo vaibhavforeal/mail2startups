@@ -28,5 +28,8 @@ def test_find_founder_names_uses_injected_search():
 
 
 def test_find_founder_names_no_key_no_fn_returns_empty(monkeypatch):
-    monkeypatch.delenv("M2S_EXA_API_KEY", raising=False)
+    # An explicit empty env var beats any real key in a developer's .env file
+    # (delenv would not — pydantic-settings still reads env_file), keeping this
+    # test hermetically offline instead of firing a live POST to api.exa.ai.
+    monkeypatch.setenv("M2S_EXA_API_KEY", "")
     assert find_founder_names("Acme") == []

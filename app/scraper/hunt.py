@@ -127,7 +127,10 @@ def hunt_all(session: Session, *, limit: int = 50, crawler=crawl_site,
                 session, startup, crawler=crawler, founder_search=founder_search,
                 enricher=enricher, resolver=resolver, monthly_limit=monthly_limit,
             ))
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, ValueError) as exc:
+            # ValueError covers json.JSONDecodeError from a provider returning a
+            # 200 with a non-JSON body; contain any single provider fault so it
+            # can never abort the whole batch.
             session.rollback()
             session.add(Event(startup_id=startup_id, kind="scrape_failed",
                               payload={"reason": "provider_error", "detail": str(exc)}))
