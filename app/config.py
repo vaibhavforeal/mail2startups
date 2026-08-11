@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/m2s.db")
     anthropic_model: str = "claude-opus-5"
     product_hunt_token: str = ""
+    exa_api_key: str = ""
 
 
 def get_settings() -> Settings:
