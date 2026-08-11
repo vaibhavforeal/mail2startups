@@ -34,3 +34,10 @@ def test_extract_dedupes_and_skips_assets():
     text = "a@acme.com A@ACME.COM logo@2x.png sprite@3x.gif"
     emails = [c.email for c in extract_emails(text)]
     assert emails == ["a@acme.com"]  # case-folded dupe merged, image assets dropped
+
+
+def test_extract_obfuscated_multipart_tld():
+    html = "Reach jane [at] acme [dot] co [dot] uk or bob [at] acme [dot] com."
+    emails = {c.email for c in extract_emails(html)}
+    assert "jane@acme.co.uk" in emails
+    assert "bob@acme.com" in emails

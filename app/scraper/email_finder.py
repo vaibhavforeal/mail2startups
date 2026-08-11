@@ -13,9 +13,11 @@ _ASSET_RE = re.compile(r"\.(png|jpe?g|gif|svg|webp|css|js)$", re.I)
 _EMAIL_RE = re.compile(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", re.I)
 
 # name [at] domain [dot] com  /  name (at) domain (dot) com  /  name at domain dot com
+# Also supports multi-part TLDs: jane [at] acme [dot] co [dot] uk
 _OBFUSCATED_RE = re.compile(
     r"([a-z0-9._%+\-]+)\s*[\[\(\{]?\s*(?:at|@)\s*[\]\)\}]?\s*"
-    r"([a-z0-9.\-]+)\s*[\[\(\{]?\s*(?:dot|\.)\s*[\]\)\}]?\s*([a-z]{2,})",
+    r"([a-z0-9.\-]+)\s*[\[\(\{]?\s*(?:dot|\.)\s*[\]\)\}]?\s*"
+    r"([a-z]{2,}(?:\s*[\[\(\{]?\s*(?:dot|\.)\s*[\]\)\}]?\s*[a-z]{2,})*)",
     re.I,
 )
 
@@ -44,7 +46,9 @@ def _clean(email: str) -> str | None:
 
 def extract_emails(text: str) -> list[CandidateContact]:
     found: list[str] = list(_EMAIL_RE.findall(text))
-    for local, host, tld in _OBFUSCATED_RE.findall(text):
+    for local, host, tld_raw in _OBFUSCATED_RE.findall(text):
+        # Clean multi-part TLD: "co [dot] uk" or "co (dot) uk" -> "co.uk"
+        tld = re.sub(r'\s*[\[\(\{]?\s*(?:dot|\.)\s*[\]\)\}]?\s*', '.', tld_raw)
         found.append(f"{local}@{host}.{tld}")
 
     out: list[CandidateContact] = []
