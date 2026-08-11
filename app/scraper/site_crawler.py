@@ -41,7 +41,7 @@ def _is_safe_host(host: str, resolve_host: Callable[[str], list[str]] | None = N
             ip = ipaddress.ip_address(addr)
         except ValueError:
             return False
-        if not ip.is_global:
+        if not ip.is_global or ip.is_multicast:
             return False
     return True
 

@@ -53,3 +53,11 @@ def test_crawl_blocks_unresolvable_domain():
         raise socket.gaierror("name or service not known")
 
     assert crawl_site("nope.invalid", resolve_host=_fails) == []
+
+
+def test_crawl_blocks_domain_resolving_to_multicast_ip():
+    # Multicast IPs report is_global=True, so they need an explicit reject in the guard.
+    def _resolves_multicast(host):
+        return ["224.0.0.1"]
+
+    assert crawl_site("evil.multicast", resolve_host=_resolves_multicast) == []
