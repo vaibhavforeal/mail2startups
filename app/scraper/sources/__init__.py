@@ -1,8 +1,10 @@
 from app.scraper.sources.base import Source
 from app.scraper.sources.csv_file import CsvSource
+from app.scraper.sources.yc import YcSource
 
 SOURCES: dict[str, type] = {
     CsvSource.name: CsvSource,
+    YcSource.name: YcSource,
 }
 
 
