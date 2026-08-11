@@ -1,0 +1,30 @@
+[project]
+name = "mail2startups"
+version = "0.1.0"
+description = "Automated internship outreach: startup discovery, email hunting, AI drafting, drip sending"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "pydantic-settings>=2.0",
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "typer>=0.12",
+    "anthropic>=0.60",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "respx>=0.21"]
+
+[project.scripts]
+m2s = "app.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = { find = { include = ["app*"] } }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

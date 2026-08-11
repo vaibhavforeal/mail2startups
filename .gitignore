@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/m2s.db
+out/
+.pytest_cache/
+*.egg-info/
+.firecrawl/
