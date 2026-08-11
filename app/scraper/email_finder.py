@@ -1,6 +1,8 @@
 import re
 from dataclasses import dataclass
 
+from bs4 import BeautifulSoup
+
 GENERIC_LOCALPARTS: frozenset[str] = frozenset({
     "info", "hello", "hi", "contact", "contactus", "careers", "career", "jobs",
     "hr", "team", "support", "admin", "sales", "founders", "press", "media",
@@ -65,3 +67,59 @@ def extract_emails(text: str) -> list[CandidateContact]:
             confidence=0.4 if generic else 0.6,
         ))
     return out
+
+
+@dataclass
+class Person:
+    name: str
+    role: str
+
+
+ROLE_KEYWORDS: tuple[str, ...] = (
+    "co-founder", "cofounder", "co founder", "founder", "ceo", "cto", "coo",
+    "cfo", "chief executive", "chief technology", "chief operating",
+    "head of", "vp of", "vice president", "director", "owner", "president",
+)
+
+_NAME_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b")
+
+
+def _match_role(line: str) -> str | None:
+    low = line.lower()
+    for keyword in ROLE_KEYWORDS:
+        if keyword in low:
+            return line.strip(" -–—:•|")
+    return None
+
+
+def _name_in(line: str) -> str | None:
+    match = _NAME_RE.search(line)
+    if not match:
+        return None
+    # Reject when the matched span is itself a role phrase (e.g. "Head Of").
+    if _match_role(match.group(1)):
+        return None
+    return match.group(1)
+
+
+def extract_people(html: str) -> list[Person]:
+    soup = BeautifulSoup(html, "html.parser")
+    lines = [line.strip() for line in soup.get_text("\n").split("\n") if line.strip()]
+
+    people: list[Person] = []
+    seen: set[str] = set()
+    for i, line in enumerate(lines):
+        role = _match_role(line)
+        if not role:
+            continue
+        name = None
+        for j in (i, i - 1, i + 1):
+            if 0 <= j < len(lines):
+                candidate = _name_in(lines[j])
+                if candidate:
+                    name = candidate
+                    break
+        if name and name not in seen:
+            seen.add(name)
+            people.append(Person(name=name, role=role))
+    return people
