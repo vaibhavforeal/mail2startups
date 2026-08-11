@@ -1,3 +1,6 @@
+import ipaddress
+import socket
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass
 
@@ -13,6 +16,36 @@ BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 REQUEST_TIMEOUT = 15.0
 
 
+def _default_resolve_host(host: str) -> list[str]:
+    """Resolve a hostname to its IP address strings via the system resolver."""
+    return [info[4][0] for info in socket.getaddrinfo(host, None)]
+
+
+def _is_safe_host(host: str, resolve_host: Callable[[str], list[str]] | None = None) -> bool:
+    """True only when every IP `host` resolves to is a globally-routable address.
+
+    SSRF guard: refuses loopback / private / link-local / reserved targets (including the
+    cloud-metadata endpoint 169.254.169.254). `resolve_host` is injectable for offline tests.
+    """
+    resolve_host = resolve_host or _default_resolve_host
+    if not host:
+        return False
+    try:
+        addrs = resolve_host(host)
+    except Exception:
+        return False
+    if not addrs:
+        return False
+    for addr in addrs:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return False
+        if not ip.is_global:
+            return False
+    return True
+
+
 @dataclass
 class CrawledPage:
     url: str
@@ -26,7 +59,13 @@ def _looks_like_html(response: httpx.Response) -> bool:
 
 
 def crawl_site(domain: str, client: httpx.Client | None = None,
-               paths: tuple[str, ...] = DEFAULT_PATHS) -> list[CrawledPage]:
+               paths: tuple[str, ...] = DEFAULT_PATHS,
+               resolve_host: Callable[[str], list[str]] | None = None) -> list[CrawledPage]:
+    # SSRF guard: never crawl a domain that resolves to a non-global (private/loopback/
+    # metadata) address. Runs before any client/connection is opened.
+    if not _is_safe_host(domain, resolve_host):
+        return []
+
     owns_client = client is None
     ctx = httpx.Client(headers={"User-Agent": BROWSER_UA},
                        timeout=REQUEST_TIMEOUT, follow_redirects=True) if owns_client \

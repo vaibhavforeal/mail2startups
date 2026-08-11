@@ -1,8 +1,14 @@
+import socket
+
 import httpx
 import respx
 from httpx import Response
 
 from app.scraper.site_crawler import CrawledPage, crawl_site
+
+
+def _resolves_public(host):
+    return ["93.184.216.34"]  # globally-routable IP so the SSRF guard allows the crawl
 
 
 @respx.mock
@@ -15,7 +21,7 @@ def test_crawl_collects_200_html_pages():
         respx.get(f"https://acme.com{path}").mock(return_value=Response(404))
 
     with httpx.Client() as client:
-        pages = crawl_site("acme.com", client=client)
+        pages = crawl_site("acme.com", client=client, resolve_host=_resolves_public)
 
     urls = [p.url for p in pages]
     assert "https://acme.com/" in urls
@@ -30,5 +36,20 @@ def test_crawl_swallows_connection_errors():
     for path in ("/about", "/about-us", "/team", "/contact", "/careers", "/company"):
         respx.get(f"https://acme.com{path}").mock(return_value=Response(200, html="<p>ok</p>"))
     with httpx.Client() as client:
-        pages = crawl_site("acme.com", client=client)
+        pages = crawl_site("acme.com", client=client, resolve_host=_resolves_public)
     assert len(pages) == 6  # the erroring root did not abort the rest
+
+
+def test_crawl_blocks_domain_resolving_to_metadata_ip():
+    # A domain that resolves into the cloud-metadata range must never be crawled (SSRF guard).
+    def _resolves_metadata(host):
+        return ["169.254.169.254"]
+
+    assert crawl_site("evil.internal", resolve_host=_resolves_metadata) == []
+
+
+def test_crawl_blocks_unresolvable_domain():
+    def _fails(host):
+        raise socket.gaierror("name or service not known")
+
+    assert crawl_site("nope.invalid", resolve_host=_fails) == []
