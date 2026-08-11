@@ -93,3 +93,51 @@ def test_draft_dry_run_writes_nothing(monkeypatch, tmp_path):
     assert "Preview subject" in result.output
     with make_session(engine) as s:
         assert s.scalars(select(Draft)).all() == []  # dry-run persisted nothing
+
+
+def test_draft_startup_twice_creates_one_draft(monkeypatch, tmp_path):
+    """draft --startup DOMAIN invoked twice creates only ONE Draft."""
+    from app.draft.service import draft_one as real_draft_one
+
+    db = _prepare(monkeypatch, tmp_path)
+    engine = get_engine(db)
+    init_db(engine)
+    with make_session(engine) as s:
+        startup = Startup(name="Globex", domain="globex.io", source="yc",
+                          status=StartupStatus.ENRICHED)
+        s.add(startup)
+        s.commit()
+        s.add(Contact(startup_id=startup.id, name="Priya", role="CTO",
+                      email="priya@globex.io", found_via="scraped",
+                      confidence=0.9, verified=True))
+        s.commit()
+
+    plan = DraftPlan(mode="formal", angle="ai", experience_ids=["e_intern"],
+                     project_ids=["p_ai"], summary="s", skill_order=["Python"],
+                     subject="Test subject", body="b")
+
+    def fake_renderer(plan, resume, startup_name, *, out_dir):
+        return Path(out_dir) / f"{startup_name}.pdf"
+
+    def fake_draft_one(session, startup, *, resume, **kwargs):
+        # Call real draft_one but with mocked drafter and renderer
+        return real_draft_one(session, startup, resume=resume,
+                             drafter=lambda s, c, r: plan,
+                             renderer=fake_renderer)
+
+    monkeypatch.setattr(cli_mod, "draft_one", fake_draft_one)
+
+    # First invocation
+    result1 = runner.invoke(app, ["draft", "--startup", "globex.io"])
+    assert result1.exit_code == 0
+    assert "drafted=1" in result1.output
+
+    # Second invocation - should be idempotent
+    result2 = runner.invoke(app, ["draft", "--startup", "globex.io"])
+    assert result2.exit_code == 0
+    assert "drafted=0" in result2.output  # second call drafts nothing
+
+    # Verify only ONE Draft exists
+    with make_session(engine) as s:
+        drafts = s.scalars(select(Draft)).all()
+        assert len(drafts) == 1

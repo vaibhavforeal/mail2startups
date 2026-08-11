@@ -113,3 +113,46 @@ def test_draft_all_contains_provider_error(session):
     a_events = session.scalars(
         select(Event).where(Event.startup_id == a.id, Event.kind == "draft_failed")).all()
     assert any(e.payload["reason"] == "provider_error" for e in a_events)
+
+
+def test_draft_startup_idempotency_guard(session):
+    """draft_startup called twice on same startup writes only ONE Draft row."""
+    from app.draft.service import draft_startup
+    s = _enriched(session, "Globex", "globex.io")
+
+    # First call drafts successfully
+    r1 = draft_startup(session, s, resume=_resume(), drafter=lambda st, c, r: _plan(),
+                       renderer=_renderer)
+    assert r1.drafted is True
+    assert s.status == StartupStatus.DRAFTED
+
+    # Second call should be blocked by guard
+    r2 = draft_startup(session, s, resume=_resume(), drafter=lambda st, c, r: _plan(),
+                       renderer=_renderer)
+    assert r2.drafted is False  # guard prevented re-draft
+
+    # Only one Draft row exists
+    drafts = session.scalars(select(Draft).where(Draft.startup_id == s.id)).all()
+    assert len(drafts) == 1
+    # Status should remain DRAFTED (not regressed)
+    assert s.status == StartupStatus.DRAFTED
+
+
+def test_draft_one_contains_provider_error(session):
+    """draft_one wraps draft_startup with provider error containment."""
+    from app.draft.service import draft_one
+    s = _enriched(session, "BrokenAPI", "broken.io")
+
+    def drafter(st, c, r):
+        raise anthropic.AnthropicError("API timeout")
+
+    result = draft_one(session, s, resume=_resume(), drafter=drafter, renderer=_renderer)
+    assert result.drafted is False  # contained, not propagated
+
+    # Should log the failure
+    events = session.scalars(
+        select(Event).where(Event.startup_id == s.id, Event.kind == "draft_failed")).all()
+    assert any(e.payload["reason"] == "provider_error" for e in events)
+
+    # No Draft row written
+    assert session.scalars(select(Draft).where(Draft.startup_id == s.id)).all() == []

@@ -47,6 +47,11 @@ def _log_failed(session: Session, startup_id: int, reason: str, **extra) -> None
 def draft_startup(session: Session, startup: Startup, *, resume: Resume,
                   drafter=draft_plan, renderer=render_resume,
                   out_dir: Path = Path("out/resumes")) -> DraftResult:
+    # Idempotency guard: only draft ENRICHED startups without an existing Draft
+    already = session.scalar(select(Draft.id).where(Draft.startup_id == startup.id))
+    if startup.status != StartupStatus.ENRICHED or already is not None:
+        return DraftResult(startup.id, False, None)
+
     contacts = session.scalars(
         select(Contact).where(Contact.startup_id == startup.id)).all()
     contact = select_primary_contact(list(contacts))
@@ -81,6 +86,20 @@ def draft_startup(session: Session, startup: Startup, *, resume: Resume,
     return DraftResult(startup.id, True, plan.mode)
 
 
+def draft_one(session: Session, startup: Startup, *, resume: Resume,
+              drafter=draft_plan, renderer=render_resume,
+              out_dir: Path = Path("out/resumes")) -> DraftResult:
+    """draft_startup wrapped in the same per-startup containment as draft_all."""
+    sid = startup.id  # capture before any rollback expires the instance
+    try:
+        return draft_startup(session, startup, resume=resume, drafter=drafter,
+                            renderer=renderer, out_dir=out_dir)
+    except (anthropic.AnthropicError, ValueError) as exc:
+        session.rollback()
+        _log_failed(session, sid, "provider_error", detail=str(exc))
+        return DraftResult(sid, False, None)
+
+
 def draft_all(session: Session, *, limit: int = 50, resume: Resume,
               drafter=draft_plan, renderer=render_resume,
               out_dir: Path = Path("out/resumes")) -> list[DraftResult]:
@@ -92,13 +111,6 @@ def draft_all(session: Session, *, limit: int = 50, resume: Resume,
     ).all()
     results: list[DraftResult] = []
     for startup in startups:
-        sid = startup.id  # capture before any rollback expires the instance
-        try:
-            results.append(draft_startup(
-                session, startup, resume=resume, drafter=drafter,
-                renderer=renderer, out_dir=out_dir))
-        except (anthropic.AnthropicError, ValueError) as exc:
-            session.rollback()
-            _log_failed(session, sid, "provider_error", detail=str(exc))
-            results.append(DraftResult(sid, False, None))
+        results.append(draft_one(session, startup, resume=resume, drafter=drafter,
+                                renderer=renderer, out_dir=out_dir))
     return results

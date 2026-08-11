@@ -5,7 +5,7 @@ from app.config import get_settings
 from app.db import get_engine, init_db as _init_db, make_session
 from app.draft.claude_draft import draft_plan
 from app.draft.resume_schema import load_resume
-from app.draft.service import draft_all, draft_startup, select_primary_contact
+from app.draft.service import draft_all, draft_one, select_primary_contact
 from app.enrich.hunter import HunterClient
 from app.models import Contact, Draft, Startup, StartupStatus
 from app.scraper.hunt import hunt_all, hunt_startup
@@ -150,7 +150,7 @@ def draft(
             if s is None:
                 typer.echo(f"No startup with domain {startup}", err=True)
                 raise typer.Exit(code=1)
-            results = [draft_startup(session, s, resume=resume)]
+            results = [draft_one(session, s, resume=resume)]
         else:
             results = draft_all(session, limit=limit, resume=resume)
 
@@ -164,7 +164,7 @@ app.add_typer(drafts_app, name="drafts")
 
 @drafts_app.command("list")
 def drafts_list():
-    """List pending drafts."""
+    """List generated drafts."""
     with _session() as session:
         rows = session.execute(
             select(Draft, Startup.name)
