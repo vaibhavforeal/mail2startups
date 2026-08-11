@@ -150,6 +150,8 @@ Per startup domain, cheapest method first:
   automatically re-queues the draft to the next-best contact for that startup.
 - Each reply classified by a quick Claude call:
   interested / rejection / auto-reply / other.
+- A startup with no reply 14 days after its follow-up send moves to
+  `no_response` automatically.
 
 ## Dashboard (HTMX)
 
