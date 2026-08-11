@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -132,3 +132,13 @@ class Event(Base):
     kind: Mapped[str] = mapped_column(String(50))  # e.g. discovered, bounce, reply, error, retry, pause
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EnrichmentUsage(Base):
+    __tablename__ = "enrichment_usage"
+    __table_args__ = (UniqueConstraint("provider", "period", name="uq_provider_period"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(50))
+    period: Mapped[str] = mapped_column(String(7))  # YYYY-MM
+    calls: Mapped[int] = mapped_column(Integer, default=0)

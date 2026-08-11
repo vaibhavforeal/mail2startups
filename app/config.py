@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-opus-5"
     product_hunt_token: str = ""
     exa_api_key: str = ""
+    hunter_api_key: str = ""
+    apollo_api_key: str = ""
+    hunter_monthly_limit: int = 25
 
 
 def get_settings() -> Settings:
