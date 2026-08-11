@@ -26,3 +26,11 @@ def test_guess_dedupes():
     # first==last edge cases must not yield duplicate addresses
     emails = [c.email for c in guess_email_candidates("Sam Sam", "acme.com")]
     assert len(emails) == len(set(emails))
+
+
+def test_guess_dedupes_multipart_collision():
+    cands = guess_email_candidates("Bob Ob", "acme.com")
+    emails = [c.email for c in cands]
+    assert len(emails) == len(set(emails))            # no duplicate addresses
+    bob = next(c for c in cands if c.email == "bob@acme.com")
+    assert bob.confidence == 0.6                       # highest-confidence variant kept
