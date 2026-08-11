@@ -39,12 +39,12 @@ class ProductHuntSource:
         records: list[StartupRecord] = []
         for edge in edges[:limit]:
             node = edge.get("node", {})
-            topics = [t["node"]["name"] for t in node.get("topics", {}).get("edges", [])]
+            topics = [t["node"].get("name", "") for t in node.get("topics", {}).get("edges", [])]
             records.append(StartupRecord(
                 name=node.get("name") or "",
                 website=node.get("website") or None,
                 description=". ".join(p for p in [node.get("tagline"), node.get("description")] if p),
-                industry=", ".join(topics),
+                industry=", ".join(t for t in topics if t),
                 source=self.name,
             ))
         return records
