@@ -1,0 +1,36 @@
+# Copy this file to data/resume.yaml and fill in your real details.
+# The AI may only SELECT and REPHRASE what appears here — it never invents.
+# Allowed tags on skills/projects/experience: web, ai, data
+profile:
+  name: Your Name
+  email: you@example.com
+  phone: ""
+  location: City, Country
+  headline: Software Engineer
+links:
+  github: https://github.com/you
+  portfolio: ""
+  linkedin: ""
+education:
+  - school: Your University
+    degree: B.Tech, Computer Science
+    year: "2025"
+    detail: ""
+skills:
+  - { name: Python, tags: [web, ai, data] }
+projects:
+  - id: proj1
+    name: Example Project
+    tags: [ai]
+    summary: One line on what it does.
+    impact:
+      - Quantified result or outcome.
+    link: ""
+experience:
+  - id: exp1
+    org: Company
+    role: Intern
+    dates: Summer 2024
+    tags: [web]
+    impact:
+      - What you built and its impact.

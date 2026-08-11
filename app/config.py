@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="M2S_", env_file=".env", extra="ignore")
 
     db_path: Path = Path("data/m2s.db")
+    resume_path: Path = Path("data/resume.yaml")
     anthropic_model: str = "claude-opus-5"
     product_hunt_token: str = ""
     exa_api_key: str = ""

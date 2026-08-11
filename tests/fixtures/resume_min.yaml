@@ -1,0 +1,41 @@
+profile:
+  name: Vaibhav Shettar
+  email: vaibhav@example.com
+  phone: "+91-90000-00000"
+  location: Bengaluru, India
+  headline: Software Engineer — AI & Backend
+links:
+  github: https://github.com/vaibhav
+  portfolio: https://vaibhav.dev
+education:
+  - school: Example Institute of Technology
+    degree: B.Tech, Computer Science
+    year: "2025"
+    detail: GPA 8.9/10
+skills:
+  - { name: Python, tags: [web, ai, data] }
+  - { name: FastAPI, tags: [web] }
+  - { name: PyTorch, tags: [ai] }
+projects:
+  - id: p_ai
+    name: RagPipeline
+    tags: [ai]
+    summary: Retrieval-augmented QA over private docs.
+    impact:
+      - Cut hallucinations 40% with reranking.
+      - Served 200 QPS at p95 300ms.
+    link: https://github.com/vaibhav/ragpipeline
+  - id: p_web
+    name: ShopFront
+    tags: [web]
+    summary: Headless e-commerce storefront.
+    impact:
+      - Lighthouse 98 across pages.
+experience:
+  - id: e_intern
+    org: Acme Labs
+    role: SWE Intern
+    dates: Summer 2024
+    tags: [web, ai]
+    impact:
+      - Built the internal search service in FastAPI.
