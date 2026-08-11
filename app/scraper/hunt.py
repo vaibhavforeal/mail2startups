@@ -121,6 +121,7 @@ def hunt_all(session: Session, *, limit: int = 50, crawler=crawl_site,
     ).all()
     results = []
     for startup in startups:
+        startup_id = startup.id  # capture before any rollback can expire the instance
         try:
             results.append(hunt_startup(
                 session, startup, crawler=crawler, founder_search=founder_search,
@@ -128,9 +129,8 @@ def hunt_all(session: Session, *, limit: int = 50, crawler=crawl_site,
             ))
         except httpx.HTTPError as exc:
             session.rollback()
-            session.add(Event(startup_id=startup.id, kind="scrape_failed",
+            session.add(Event(startup_id=startup_id, kind="scrape_failed",
                               payload={"reason": "provider_error", "detail": str(exc)}))
             session.commit()
-            results.append(HuntResult(startup_id=startup.id, contacts_added=0,
-                                      enriched=False))
+            results.append(HuntResult(startup_id=startup_id, contacts_added=0, enriched=False))
     return results
