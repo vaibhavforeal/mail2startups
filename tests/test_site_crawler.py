@@ -61,3 +61,39 @@ def test_crawl_blocks_domain_resolving_to_multicast_ip():
         return ["224.0.0.1"]
 
     assert crawl_site("evil.multicast", resolve_host=_resolves_multicast) == []
+
+
+@respx.mock
+def test_crawl_blocks_redirect_hop_to_metadata_ip():
+    # A public site that 30x-redirects to the cloud-metadata host must NOT be
+    # followed: the redirect hop is re-validated by the guarded transport.
+    respx.get("https://acme.com/").mock(
+        return_value=Response(302, headers={"Location": "http://169.254.169.254/"}))
+    # If the hop were followed, this secret would be returned as the page body.
+    respx.get("http://169.254.169.254/").mock(
+        return_value=Response(200, html="<h1>SECRET METADATA</h1>"))
+    for path in ("/about", "/about-us", "/team", "/contact", "/careers", "/company"):
+        respx.get(f"https://acme.com{path}").mock(return_value=Response(404))
+
+    def resolve(host):
+        return ["93.184.216.34"] if host == "acme.com" else [host]  # metadata host is IP-literal
+
+    pages = crawl_site("acme.com", resolve_host=resolve)  # owns_client -> guarded transport
+    assert pages == []  # redirect into the metadata IP was refused, not crawled
+
+
+@respx.mock
+def test_crawl_follows_redirect_to_public_host():
+    # A legitimate redirect to another globally-routable host is still followed.
+    respx.get("https://acme.com/").mock(
+        return_value=Response(301, headers={"Location": "https://www.acme.com/"}))
+    respx.get("https://www.acme.com/").mock(return_value=Response(200, html="<h1>Home</h1>"))
+    for path in ("/about", "/about-us", "/team", "/contact", "/careers", "/company"):
+        respx.get(f"https://acme.com{path}").mock(return_value=Response(404))
+
+    def resolve(host):
+        return ["93.184.216.34"]  # both apex and www resolve public
+
+    pages = crawl_site("acme.com", resolve_host=resolve)
+    assert len(pages) == 1
+    assert pages[0].url == "https://acme.com/" and pages[0].html == "<h1>Home</h1>"

@@ -46,6 +46,33 @@ def _is_safe_host(host: str, resolve_host: Callable[[str], list[str]] | None = N
     return True
 
 
+class _SSRFGuardTransport(httpx.BaseTransport):
+    """Re-validate every request the client actually dials — including each
+    redirect hop — against the SSRF guard, then delegate to a real transport.
+
+    ``follow_redirects=True`` (kept for legitimate www<->apex and http->https
+    hops) otherwise lets a crawled page redirect to a private/loopback/metadata
+    address that the one-time up-front host check never sees. Checking here, at
+    the point httpx opens each connection, closes that redirect-hop gap.
+    """
+
+    def __init__(self, inner: httpx.BaseTransport,
+                 resolve_host: Callable[[str], list[str]] | None = None):
+        self._inner = inner
+        self._resolve_host = resolve_host
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        if not _is_safe_host(request.url.host, self._resolve_host):
+            raise httpx.ConnectError(
+                f"SSRF guard refused non-global host: {request.url.host!r}",
+                request=request,
+            )
+        return self._inner.handle_request(request)
+
+    def close(self) -> None:
+        self._inner.close()
+
+
 @dataclass
 class CrawledPage:
     url: str
@@ -67,9 +94,14 @@ def crawl_site(domain: str, client: httpx.Client | None = None,
         return []
 
     owns_client = client is None
-    ctx = httpx.Client(headers={"User-Agent": BROWSER_UA},
-                       timeout=REQUEST_TIMEOUT, follow_redirects=True) if owns_client \
-        else nullcontext(client)
+    if owns_client:
+        # Wrap the transport so redirect hops are re-validated too, not just the
+        # initial host — a page can 30x-redirect into private/metadata space.
+        transport = _SSRFGuardTransport(httpx.HTTPTransport(), resolve_host=resolve_host)
+        ctx = httpx.Client(headers={"User-Agent": BROWSER_UA}, timeout=REQUEST_TIMEOUT,
+                           follow_redirects=True, transport=transport)
+    else:
+        ctx = nullcontext(client)
 
     pages: list[CrawledPage] = []
     with ctx as active:
