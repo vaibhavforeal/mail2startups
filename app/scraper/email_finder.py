@@ -165,6 +165,7 @@ def guess_email_candidates(full_name: str, domain: str, role: str = "") -> list[
     best: dict[str, float] = {}
     for local, confidence in patterns:
         email = f"{local}@{domain}".lower()
+        # patterns are emitted highest-confidence first, so the first-seen address is the highest-confidence variant; keep it and skip the rest
         if email in best:
             continue
         best[email] = confidence

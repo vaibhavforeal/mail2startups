@@ -33,4 +33,4 @@ def test_guess_dedupes_multipart_collision():
     emails = [c.email for c in cands]
     assert len(emails) == len(set(emails))            # no duplicate addresses
     bob = next(c for c in cands if c.email == "bob@acme.com")
-    assert bob.confidence == 0.6                       # highest-confidence variant kept
+    assert bob.confidence == 0.6                       # flast="bob" (0.6) is emitted before first="bob" (0.5); first-seen == highest here
