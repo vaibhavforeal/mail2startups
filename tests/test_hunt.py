@@ -1,5 +1,7 @@
+import httpx
 from sqlalchemy import select
 
+from app.enrich import usage
 from app.models import Contact, Event, Startup, StartupStatus
 from app.scraper.email_finder import CandidateContact
 from app.scraper.hunt import hunt_all, hunt_startup
@@ -110,3 +112,51 @@ def test_hunt_all_processes_only_discovered(session):
     assert len(results) == 1
     a_id = session.scalars(select(Startup.id).where(Startup.name == "A")).one()
     assert results[0].startup_id == a_id
+
+
+def test_hunt_all_contains_provider_error(session):
+    a = _make_startup(session, name="A", domain="a.io")
+    b = _make_startup(session, name="B", domain="b.io")
+
+    def flaky_founder_search(name, **kw):
+        if name == "A":
+            raise httpx.ConnectError("exa down")
+        return []
+
+    results = hunt_all(
+        session, limit=10,
+        crawler=lambda domain, client=None, paths=None: [],
+        founder_search=flaky_founder_search,
+        resolver=FakeResolver(),
+    )
+    # One provider failure no longer aborts the batch: both startups produced a result.
+    assert len(results) == 2
+
+    a_events = session.scalars(
+        select(Event).where(Event.startup_id == a.id, Event.kind == "scrape_failed")
+    ).all()
+    assert any(e.payload["reason"] == "provider_error" for e in a_events)
+
+    b_events = session.scalars(
+        select(Event).where(Event.startup_id == b.id, Event.kind == "scrape_failed")
+    ).all()
+    assert [e.payload["reason"] for e in b_events] == ["no_contacts"]
+
+
+def test_hunt_enricher_failure_does_not_burn_credit(session):
+    _make_startup(session, name="Flaky", domain="flaky.io")
+
+    class FailingEnricher:
+        name = "hunter"
+        def domain_search(self, domain):
+            raise httpx.ConnectError("hunter down")
+
+    hunt_all(
+        session, limit=10,
+        crawler=lambda domain, client=None, paths=None: [],
+        founder_search=lambda name, **kw: [],
+        enricher=FailingEnricher(),
+        resolver=FakeResolver(),
+    )
+    # Credit is recorded only after a successful call, so the failed call burned nothing.
+    assert usage.usage_this_month(session, "hunter") == 0

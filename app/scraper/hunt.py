@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,8 +17,10 @@ from app.scraper.email_finder import (
 )
 from app.scraper.site_crawler import crawl_site
 
-# A candidate is "good enough" to skip paid enrichment when it is a verified,
-# non-guessed contact or any founder-role contact.
+# A candidate is "good enough" to skip paid enrichment only when it was scraped
+# from the site or returned by a paid API. Pattern guesses never count, so a
+# guess-only startup still triggers enrichment (by product decision — a guess is
+# not a confirmed mailbox).
 _GOOD_SOURCES = {"scraped", "api"}
 
 
@@ -70,8 +73,9 @@ def hunt_startup(session: Session, startup: Startup, *, crawler=crawl_site,
     # 5. Paid enrichment only if scraping + guessing produced nothing usable.
     if enricher is not None and not _has_good_contact(candidates):
         if usage.remaining(session, enricher.name, monthly_limit) > 0:
+            found = enricher.domain_search(startup.domain)
             usage.record_call(session, enricher.name)
-            candidates.extend(enricher.domain_search(startup.domain))
+            candidates.extend(found)
 
     # 6. Rank and persist (dedupe against existing contacts for this startup).
     ranked = rank_contacts([c for c in candidates if c.email])
@@ -117,8 +121,16 @@ def hunt_all(session: Session, *, limit: int = 50, crawler=crawl_site,
     ).all()
     results = []
     for startup in startups:
-        results.append(hunt_startup(
-            session, startup, crawler=crawler, founder_search=founder_search,
-            enricher=enricher, resolver=resolver, monthly_limit=monthly_limit,
-        ))
+        try:
+            results.append(hunt_startup(
+                session, startup, crawler=crawler, founder_search=founder_search,
+                enricher=enricher, resolver=resolver, monthly_limit=monthly_limit,
+            ))
+        except httpx.HTTPError as exc:
+            session.rollback()
+            session.add(Event(startup_id=startup.id, kind="scrape_failed",
+                              payload={"reason": "provider_error", "detail": str(exc)}))
+            session.commit()
+            results.append(HuntResult(startup_id=startup.id, contacts_added=0,
+                                      enriched=False))
     return results
