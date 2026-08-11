@@ -14,7 +14,7 @@ SEARCH_FIXTURE = {
 
 PROFILE_P1 = {"user": {"startup": {"website": "https://desitech.in",
                                    "email": "founder@desitech.in",
-                                   "sector": "FinTech"}}}
+                                   "sector": {"industryName": "FinTech"}}}}
 PROFILE_P2 = {"user": {"startup": {}}}
 
 

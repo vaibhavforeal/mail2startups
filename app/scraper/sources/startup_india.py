@@ -24,6 +24,11 @@ def _find_first(data, keys: tuple[str, ...]):
     if isinstance(data, dict):
         for key, value in data.items():
             if key in keys and value:
+                # If value is a dict, try to extract a string representation
+                # (e.g., industryName, name, or text field)
+                if isinstance(value, dict):
+                    return (value.get("industryName") or value.get("name")
+                            or value.get("text") or str(value))
                 return value
             found = _find_first(value, keys)
             if found:
