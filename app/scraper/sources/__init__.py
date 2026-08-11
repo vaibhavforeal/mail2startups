@@ -1,11 +1,13 @@
 from app.scraper.sources.base import Source
 from app.scraper.sources.csv_file import CsvSource
+from app.scraper.sources.listicle import ListicleSource
 from app.scraper.sources.product_hunt import ProductHuntSource
 from app.scraper.sources.startup_india import StartupIndiaSource
 from app.scraper.sources.yc import YcSource
 
 SOURCES: dict[str, type] = {
     CsvSource.name: CsvSource,
+    ListicleSource.name: ListicleSource,
     ProductHuntSource.name: ProductHuntSource,
     StartupIndiaSource.name: StartupIndiaSource,
     YcSource.name: YcSource,
