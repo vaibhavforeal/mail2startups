@@ -25,6 +25,9 @@ dashboard with a human review queue before anything is sent.
 - **Control:** local web dashboard; every email (including follow-ups) passes a
   human review queue before sending.
 - **Follow-ups:** exactly one, at day 5–7 if no reply and no bounce.
+- **Outreach modes:** formal (tailored resume PDF attached) and casual (short
+  conversational note, no attachment). AI suggests the mode per startup; user
+  can override in the review queue.
 
 ## Architecture
 
@@ -68,7 +71,7 @@ Startup status pipeline:
 |---|---|---|
 | `startups` | one row per company | name, domain, source, location, industry, description, status |
 | `contacts` | people/inboxes per startup | startup_id, name, role, email, found_via (scraped / api / pattern_guess / generic), confidence, verified |
-| `drafts` | AI output awaiting review | startup_id, contact_id, subject, body, resume_pdf_path, status (pending_review / approved / rejected), user_edits |
+| `drafts` | AI output awaiting review | startup_id, contact_id, mode (formal / casual), subject, body, resume_pdf_path (null for casual), status (pending_review / approved / rejected), user_edits |
 | `messages` | every actual send | draft_id, type (initial / followup), sent_at, smtp_message_id, status (queued / sent / failed / bounced / replied) |
 | `events` | append-only log | startup_id, kind (bounce / reply / error / retry / pause), payload, timestamp |
 
@@ -116,13 +119,23 @@ Per startup domain, cheapest method first:
 
 ## AI drafting
 
-- `data/resume.yaml` holds profile, education, skills, projects, and experience,
-  each item tagged by domain (web / ai / data / ...) with impact bullets.
-  One-time setup converts the user's existing resume into this format.
-- One Claude API call per startup returns structured JSON: chosen angle
-  (SWE / AI / data), selected project IDs, rewritten 2-line summary, reordered
-  skill emphasis, email subject, and email body (< ~150 words, references
-  something concrete about the startup, plain tone, no flattery).
+- `data/resume.yaml` holds profile, education, skills, projects, experience, and
+  links (GitHub/portfolio), each item tagged by domain (web / ai / data / ...)
+  with impact bullets. One-time setup converts the user's existing resume into
+  this format.
+- **Outreach mode per startup** — decided first, then drafting branches on it:
+  - **formal:** tailored email (< ~150 words) + resume PDF attached.
+  - **casual:** conversational 3–5 sentence note referencing what the startup is
+    building; no attachment — GitHub/portfolio links inline instead, closing
+    with a soft ask ("happy to send a resume if useful").
+  - The same Claude call suggests the mode from signals (team size, founder vs
+    generic contact, website/brand tone); the user can flip the mode on any
+    draft in the review queue, which regenerates it.
+- One Claude API call per startup returns structured JSON: suggested mode,
+  chosen angle (SWE / AI / data), selected project IDs, rewritten 2-line
+  summary, reordered skill emphasis, email subject, and email body matching the
+  mode (plain tone, references something concrete about the startup,
+  no flattery).
 - **Hard guardrail:** the AI selects and re-phrases only — it cannot invent
   projects, numbers, or experience absent from `resume.yaml`.
 - Rendering is mechanical: selected content flows into the Typst template and
@@ -137,10 +150,12 @@ Per startup domain, cheapest method first:
   daily cap 30 (config), week-1 ramp 10–15/day. Only `approved` drafts send.
 - If the machine is off, the scheduler catches up at next start without ever
   exceeding the daily cap.
-- Emails are plain text with the tailored PDF attached.
+- Emails are plain text; formal mode attaches the tailored PDF, casual mode
+  sends no attachment.
 - **Follow-up:** day 5–7 after initial send with no reply/bounce, a short nudge
-  is auto-drafted into the same thread (`In-Reply-To`) and enters the review
-  queue like any draft. Exactly one follow-up per startup.
+  is auto-drafted into the same thread (`In-Reply-To`), inheriting the tone of
+  the original mode, and enters the review queue like any draft. Exactly one
+  follow-up per startup.
 
 ## Tracking
 
@@ -158,7 +173,8 @@ Per startup domain, cheapest method first:
 - **Overview:** funnel stats (discovered → … → replied), today's send queue,
   enrichment credits remaining, domain-health warnings, global pause button.
 - **Startups:** filterable table; per-company detail with event timeline.
-- **Review queue:** email text + rendered resume PDF side by side; inline edit;
+- **Review queue:** email text + rendered resume PDF side by side (text only
+  for casual drafts); mode toggle with one-click regenerate; inline edit;
   approve / reject; bulk approve.
 - **Replies:** classified list, highlighting "interested".
 
