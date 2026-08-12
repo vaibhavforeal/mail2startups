@@ -1,4 +1,5 @@
 import typer
+from datetime import datetime, timezone
 from sqlalchemy import func, select
 
 from app.config import get_settings
@@ -11,6 +12,12 @@ from app.models import Contact, Draft, Startup, StartupStatus
 from app.scraper.hunt import hunt_all, hunt_startup
 from app.scraper.ingest import ingest_records
 from app.scraper.sources import get_source
+from app.send.preflight import check_dns
+from app.send.service import (
+    approve_drafts, reject_drafts, send_batch, send_test_emails,
+)
+from app.send.smtp_client import SmtpTransport
+from app.send import state as send_state
 
 app = typer.Typer(help="Mail2Startups — automated internship outreach")
 
@@ -193,6 +200,109 @@ def drafts_show(draft_id: int = typer.Argument(..., help="Draft id")):
         typer.echo(f"PDF: {draft_row.resume_pdf_path or '(none)'}")
         typer.echo("")
         typer.echo(draft_row.body)
+
+
+def _build_transport(settings):
+    return SmtpTransport(settings.smtp_host, settings.smtp_port,
+                         settings.smtp_user, settings.smtp_password)
+
+
+def _dns_resolve(name: str, rtype: str) -> list[str]:
+    import dns.exception
+    import dns.resolver
+    try:
+        answers = dns.resolver.resolve(name, rtype)
+    except dns.exception.DNSException:
+        return []
+    return [b"".join(r.strings).decode("utf-8", "ignore") for r in answers]
+
+
+@app.command()
+def approve(
+    ids: list[int] = typer.Argument(None, help="Draft ids to approve"),
+    all_pending: bool = typer.Option(False, "--all", help="Approve all pending_review drafts"),
+):
+    """Approve drafts for sending (moves them to the send queue)."""
+    if not ids and not all_pending:
+        typer.echo("Error: give draft ids or --all", err=True)
+        raise typer.Exit(code=1)
+    with _session() as session:
+        n = approve_drafts(session, ids, all_pending=all_pending)
+    typer.echo(f"approved {n} draft(s)")
+
+
+@app.command()
+def reject(ids: list[int] = typer.Argument(..., help="Draft ids to reject")):
+    """Reject drafts (marks their startups dead)."""
+    with _session() as session:
+        n = reject_drafts(session, ids)
+    typer.echo(f"rejected {n} draft(s)")
+
+
+@app.command()
+def send(
+    limit: int = typer.Option(1, help="Max emails to send this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Send to your own address; change nothing"),
+    force: bool = typer.Option(False, "--force", help="Bypass the send window and daily cap"),
+):
+    """Send approved drafts (one-shot; respects pause, window, cap, ramp)."""
+    settings = get_settings()
+    if not settings.smtp_user or not settings.smtp_password:
+        typer.echo("Error: set M2S_SMTP_USER and M2S_SMTP_PASSWORD in .env", err=True)
+        raise typer.Exit(code=1)
+    transport = _build_transport(settings)
+    now = datetime.now(timezone.utc)
+    with _session() as session:
+        results = send_batch(session, now=now, transport=transport, settings=settings,
+                             limit=limit, dry_run=dry_run, force=force)
+    sent = sum(1 for r in results if r.sent)
+    for r in results:
+        typer.echo(f"  draft {r.draft_id}: {'sent' if r.sent else 'skip'} ({r.reason or 'ok'})")
+    typer.echo(f"send: attempted={len(results)} sent={sent}")
+
+
+@app.command()
+def pause():
+    """Pause sending."""
+    with _session() as session:
+        send_state.pause(session, "manual")
+    typer.echo("sending paused")
+
+
+@app.command()
+def resume():
+    """Resume sending and clear the failure counter."""
+    with _session() as session:
+        send_state.resume(session)
+    typer.echo("sending resumed")
+
+
+@app.command("test-send")
+def test_send_cmd(count: int = typer.Option(5, help="How many test emails to send")):
+    """Send test emails to M2S_TEST_RECIPIENT to check deliverability."""
+    settings = get_settings()
+    if not settings.test_recipient:
+        typer.echo("Error: set M2S_TEST_RECIPIENT in .env", err=True)
+        raise typer.Exit(code=1)
+    transport = _build_transport(settings)
+    with _session() as session:
+        n = send_test_emails(session, transport=transport, settings=settings, count=count)
+    typer.echo(f"test-send: sent {n}/{count} to {settings.test_recipient}")
+
+
+@app.command()
+def preflight(domain: str = typer.Option(None, help="Domain to check (default: from M2S_FROM_EMAIL)")):
+    """Check SPF / DKIM / DMARC DNS records before the first send."""
+    settings = get_settings()
+    dom = domain or (settings.from_email or settings.smtp_user).split("@")[-1]
+    if not dom:
+        typer.echo("Error: no domain (set M2S_FROM_EMAIL or pass --domain)", err=True)
+        raise typer.Exit(code=1)
+    report = check_dns(dom, selector=settings.dkim_selector, resolve=_dns_resolve)
+    for label, (ok, detail) in [("SPF", report.spf), ("DKIM", report.dkim),
+                                ("DMARC", report.dmarc)]:
+        typer.echo(f"  {label}: {'OK' if ok else 'FAIL'} — {detail}")
+    typer.echo(f"preflight: {'all checks passed' if report.ok else 'issues found'}")
 
 
 if __name__ == "__main__":

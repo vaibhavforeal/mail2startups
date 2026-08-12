@@ -55,6 +55,28 @@ status and advances them to `enriched`. Paid enrichment (Hunter, ~25/mo free)
 is consulted only when site crawling and pattern guessing find no usable
 contact, and remaining monthly credits are tracked in the database.
 
+## Sending (Phase 4)
+
+Approved drafts are sent from your Hostinger mailbox, one-shot and drip-paced.
+
+```bash
+m2s preflight                 # check SPF/DKIM/DMARC before the first send
+m2s test-send --count 5       # 5 test emails to M2S_TEST_RECIPIENT (inbox-placement check)
+m2s approve 12 34             # or: m2s approve --all
+m2s send --dry-run            # sends to your own address, changes nothing
+m2s send                      # sends the next-due email (respects pause, window, cap, ramp)
+m2s pause / m2s resume        # halt / resume sending
+```
+
+`m2s send` sends up to `--limit` (default 1) approved emails per run, then exits;
+schedule it every ~20 min during the send window (Windows Task Scheduler / cron)
+so the randomized gap lives in the schedule. The daily cap (30, ramped to 15 for
+the first 7 days) and "machine-off catch-up" both follow from re-running the
+command. Three consecutive SMTP failures auto-pause the campaign.
+
+Set the SMTP block in `.env` (see `.env.example`); `M2S_DKIM_SELECTOR` comes from
+your Hostinger DNS panel.
+
 ## Tests
 
 ```bash
