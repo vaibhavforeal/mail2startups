@@ -46,8 +46,8 @@ def test_sweep_clock_measures_from_followup(session):
     # Aug 15 is 14 days after the initial, but only 9 after the follow-up → keep
     assert _sweep_no_response(session, _utc(2026, 8, 15), 14, mutate=True) == 0
     assert s.status == StartupStatus.SENT
-    # Aug 20 is 14 days after the follow-up → give up
-    assert _sweep_no_response(session, _utc(2026, 8, 20), 14, mutate=True) == 1
+    # Aug 21 is 15 days after the follow-up → give up
+    assert _sweep_no_response(session, _utc(2026, 8, 21), 14, mutate=True) == 1
     assert s.status == StartupStatus.NO_RESPONSE
 
 

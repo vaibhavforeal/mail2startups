@@ -120,7 +120,7 @@ def _sweep_no_response(session, now, no_response_days, *, mutate):
         newest = _newest_sent_at(session, s.id)
         if newest is None:
             continue
-        if _as_utc(newest) <= cutoff:
+        if _as_utc(newest) < cutoff:
             due.append(s)
     if mutate:
         for s in due:
