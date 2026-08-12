@@ -278,7 +278,7 @@ def resume():
 
 
 @app.command("test-send")
-def test_send_cmd(count: int = typer.Option(5, help="How many test emails to send")):
+def send_test_cmd(count: int = typer.Option(5, help="How many test emails to send")):
     """Send test emails to M2S_TEST_RECIPIENT to check deliverability."""
     settings = get_settings()
     if not settings.test_recipient:
