@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.inbox.matching import detect_bounce, match_reply
 from app.models import (
-    Contact, Draft, Event, InboxKind, InboxMessage, Message, MessageStatus,
-    ReplyLabel, Startup, StartupStatus,
+    Contact, Draft, DraftStatus, Event, InboxKind, InboxMessage, Message,
+    MessageStatus, MessageType, ReplyLabel, Startup, StartupStatus,
 )
 from app.send import state as state_mod
 
@@ -100,15 +100,27 @@ def _record_reply(session, fetched, startup_id, message_id, matched, label):
                                "label": label.value}))
 
 
+def _has_inflight_followup(session, startup_id) -> bool:
+    """A follow-up drafted but not yet sent (awaiting review or sending)."""
+    return session.scalar(
+        select(Draft.id).where(
+            Draft.startup_id == startup_id,
+            Draft.type == MessageType.FOLLOWUP,
+            Draft.status.in_((DraftStatus.PENDING_REVIEW, DraftStatus.APPROVED)),
+            Draft.id.not_in(select(Message.draft_id)))) is not None
+
+
 def _sweep_no_response(session, now, no_response_days, *, mutate):
     cutoff = now - timedelta(days=no_response_days)
     due = []
     for s in session.scalars(
             select(Startup).where(Startup.status == StartupStatus.SENT)).all():
+        if _has_inflight_followup(session, s.id):
+            continue
         newest = _newest_sent_at(session, s.id)
         if newest is None:
             continue
-        if _as_utc(newest) < cutoff:
+        if _as_utc(newest) <= cutoff:
             due.append(s)
     if mutate:
         for s in due:
