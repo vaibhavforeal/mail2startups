@@ -102,6 +102,28 @@ It is one-shot and idempotent — schedule it every ~10 min during the send wind
 (Windows Task Scheduler / cron). Set the IMAP block in `.env` (see
 `.env.example`); blank IMAP creds fall back to the SMTP credentials.
 
+## Follow-ups (Phase 6)
+
+Each startup gets at most **one** follow-up. Once its initial email is
+`M2S_FOLLOWUP_DELAY_DAYS` old (default 5) and it has not replied or bounced,
+generate a short, Claude-drafted, threaded nudge:
+
+    m2s followups              # draft follow-ups for eligible silent startups
+    m2s followups --dry-run    # preview counts; write nothing
+
+Follow-ups reuse the normal review/send flow — approve and send them exactly
+like initial drafts:
+
+    m2s approve <id>
+    m2s send
+
+The follow-up threads onto the original email (`In-Reply-To`/`References`) with
+a `Re: <subject>` subject and no resume attachment. A startup is swept to
+`no_response` 14 days after its **most recent** outbound message
+(`M2S_NO_RESPONSE_DAYS`), so a followed-up startup is given up ~14 days after
+the follow-up, not the initial send. A startup whose follow-up is still awaiting
+review is never swept early.
+
 ## Tests
 
 ```bash

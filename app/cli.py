@@ -7,6 +7,8 @@ from app.db import get_engine, init_db as _init_db, make_session
 from app.draft.claude_draft import draft_plan
 from app.draft.resume_schema import load_resume
 from app.draft.service import draft_all, draft_one, select_primary_contact
+from app.followup.claude_followup import followup_plan
+from app.followup.service import draft_followups
 from app.enrich.hunter import HunterClient
 from app.inbox.classify import classify_reply
 from app.inbox.imap_client import HostingerImap
@@ -223,6 +225,13 @@ def _build_classifier(settings):
     return lambda text: classify_reply(client, text, model=model)
 
 
+def _build_followup_generator(settings):
+    from app.draft.claude_draft import resolve_backend
+    client, model = resolve_backend()
+    return lambda startup, resume, subject, body: followup_plan(
+        startup, resume, subject, body, client=client, model=model)
+
+
 def _dns_resolve(name: str, rtype: str) -> list[str]:
     import dns.exception
     import dns.resolver
@@ -308,6 +317,32 @@ def inbox(
         raise typer.Exit(code=1)
     typer.echo(f"inbox: fetched={result.fetched} replies={result.replies} "
                f"bounces={result.bounces} no_response={result.no_response}")
+
+
+@app.command()
+def followups(
+    limit: int = typer.Option(50, help="Max follow-up drafts to create this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview; write nothing"),
+):
+    """Draft one threaded follow-up per silent startup (past the delay window)."""
+    settings = get_settings()
+    try:
+        resume = load_resume(settings.resume_path)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        generator = _build_followup_generator(settings)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    now = datetime.now(timezone.utc)
+    with _session() as session:
+        results = draft_followups(session, resume=resume, now=now,
+                                  settings=settings, generator=generator,
+                                  limit=limit, dry_run=dry_run)
+    drafted = sum(1 for r in results if r.drafted)
+    typer.echo(f"followups: processed={len(results)} drafted={drafted}")
 
 
 @app.command()
