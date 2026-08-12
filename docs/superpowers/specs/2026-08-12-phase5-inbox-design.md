@@ -14,9 +14,10 @@ the user's Hostinger IMAP mailbox, matches incoming mail to the outbound
 - **Replies** → `Startup` `replied`, classified by Claude
   (interested / rejection / auto-reply / other), recorded in a dedicated
   `inbox_messages` table.
-- **Bounces** → `Message` `bounced`, the bouncing contact demoted; the startup
-  becomes re-draftable (`enriched`) if another usable contact remains, else
-  `bounced`.
+- **Bounces** → `Message` `bounced`, the bouncing contact demoted
+  (`verified=False`), and `Startup` `bounced`. Re-targeting another contact is
+  **not** done here — it belongs to the future re-send/follow-up phase, which
+  owns draft/send re-entry (see Decisions).
 - **Stale sends** → a `no_response` sweep moves a `sent` startup to
   `no_response` after `no_response_days` (default 14) with no reply or bounce.
 
@@ -73,7 +74,7 @@ one-subsystem-per-phase cadence):
 | Run model | One-shot `m2s inbox`, OS-scheduler cadence | Matches Phase 4; keeps the poller sleepless and deterministic. |
 | New-mail tracking | UID watermark in `CampaignState` (`last_imap_uid` + `imap_uidvalidity`), read-only fetch | Incremental and idempotent without touching `\Seen` or the user's read state; UIDVALIDITY guards mailbox resets. |
 | Reply classification | Included now — a Claude call per matched reply (interested / rejection / auto-reply / other) | User's choice. Reuses the injected-Claude pattern from `app/draft/`; mocked offline in tests. |
-| Bounce behavior | Mark `bounced` + demote contact; startup → `enriched` (re-draftable via the existing flow) if another contact remains, else `bounced`. No auto-resend from the inbox path. | User's choice. Keeps detection decoupled from send/draft; re-send still passes a fresh human approval. |
+| Bounce behavior | Mark `Message` `bounced` + demote the contact (`verified=False`) + `Startup` `bounced`. No re-target, no re-draft, no auto-resend from the inbox path. | User's choice (keep detection pure). The current `draft_startup` guard skips any startup that already has a `Draft`, and `select_primary_contact` would re-pick the bounced address — so real re-targeting requires `draft/` + contact-selection changes that belong to the re-send/follow-up phase, not this detection-only one. |
 | Detail storage | Dedicated `inbox_messages` table (source of truth for inbound mail) + a thin `Event` transition row | User's choice. A queryable record of every reply/bounce; `Event` keeps the project-wide append-only timeline. |
 | Idempotency key | `inbox_messages.imap_message_id` UNIQUE (inbound email's own Message-ID) | Stable across re-fetch; dedupes even if the UID watermark is reset. |
 | `no_response` anchor | `now − no_response_days` vs the startup's newest SENT `Message.sent_at` | Works now from the initial send; the future follow-up send re-anchors it automatically (newest SENT moves forward). |
@@ -169,16 +170,18 @@ class FetchedMessage:
     received_at: datetime | None  # parsed Date header
 
 class ImapClient(Protocol):
-    def fetch_new(self, mailbox: str, since_uid: int) -> tuple[int, list[FetchedMessage]]:
-        """Return (uidvalidity, messages) for UIDs > since_uid, read-only
-        (no \\Seen). If uidvalidity differs from the caller's stored value the
-        caller resets its watermark."""
+    def fetch_new(self, mailbox: str, since_uid: int,
+                  uidvalidity: int) -> tuple[int, list[FetchedMessage]]:
+        """Open `mailbox` read-only (no \\Seen). Read the server's UIDVALIDITY;
+        if it differs from the caller's `uidvalidity`, ignore `since_uid` and
+        return all messages (watermark reset), else return messages with
+        UID > since_uid. Returns (server_uidvalidity, messages)."""
         ...
 
 class HostingerImap:
     """Real IMAP4_SSL client. Not exercised in tests (they inject a fake)."""
     def __init__(self, host: str, port: int, user: str, password: str): ...
-    def fetch_new(self, mailbox: str, since_uid: int) -> tuple[int, list[FetchedMessage]]: ...
+    def fetch_new(self, mailbox, since_uid, uidvalidity) -> tuple[int, list[FetchedMessage]]: ...
 ```
 
 ### `app/inbox/matching.py` — pure
@@ -235,8 +238,7 @@ def poll_inbox(session, *, imap, classifier, now, settings,
       3. Per fetched message, skip if inbox_messages already has its
          imap_message_id:
            • detect_bounce → Message.status = BOUNCED; demote the failed contact
-             (verified=False); if the startup has another usable contact →
-             Startup.status = ENRICHED (re-draftable) else BOUNCED; write an
+             (verified=False); Startup.status = BOUNCED; write an
              InboxMessage(kind=BOUNCE, label=None) + Event 'bounce'.
            • else match_reply and the startup is not already REPLIED/BOUNCED →
              label = classify_reply(...); Message.status = REPLIED (when a
@@ -259,8 +261,7 @@ def poll_inbox(session, *, imap, classifier, now, settings,
 m2s inbox                         poll_inbox(now)
   └─ imap.fetch_new(INBOX, last_uid)  → new FetchedMessages (read-only, UID > watermark)
        └─ already recorded? ──yes─▶ skip (dedup on imap_message_id)
-       └─ bounce?  ──yes─▶ Message→bounced, contact demoted,
-       │                    Startup→enriched (re-draftable) | bounced,
+       └─ bounce?  ──yes─▶ Message→bounced, contact demoted, Startup→bounced,
        │                    InboxMessage(bounce) + Event 'bounce'
        └─ reply?   ──yes─▶ classify → label, Message→replied, Startup→replied,
                             InboxMessage(reply,label) + Event 'reply'
@@ -270,7 +271,7 @@ m2s inbox                         poll_inbox(now)
 ```
 
 Status pipeline advanced this phase:
-`sent → replied` (reply) · `sent → bounced | enriched` (bounce) ·
+`sent → replied` (reply) · `sent → bounced` (bounce) ·
 `sent → no_response` (sweep). Existing statuses/enums cover all of these; only
 `inbox_messages` and the two `CampaignState` columns are new.
 
@@ -306,9 +307,9 @@ in-memory DB):
   `ReplyLabel`; client raises `anthropic.AnthropicError` → `OTHER`; unknown
   string → `OTHER`.
 - `test_inbox_service.py` — reply → `Startup` `replied`, `Message` `replied`,
-  one `InboxMessage(reply,label)` row + `Event`; bounce with a spare contact →
-  `Message` `bounced`, contact demoted, `Startup` `enriched`; bounce with no
-  spare contact → `Startup` `bounced`; `no_response` sweep moves an aged `sent`
+  one `InboxMessage(reply,label)` row + `Event`; bounce → `Message` `bounced`,
+  contact demoted (`verified=False`), `Startup` `bounced`, one
+  `InboxMessage(bounce)` row + `Event`; `no_response` sweep moves an aged `sent`
   startup and leaves a fresh one; **idempotent** — a second `poll_inbox` over
   the same `FakeImap` writes no new rows and changes no status; **dry-run**
   mutates nothing (no row, no status, no watermark).
@@ -335,5 +336,7 @@ logic (matching, service, classify) takes the client/classifier as parameters.
 - APScheduler daemon / any long-running poller.
 - Full MIME thread reconstruction, HTML-body parsing, attachment handling.
 - Multi-mailbox rotation, open-tracking pixels, A/B copy testing.
-- Any automatic re-send: a demoted-contact startup re-enters the normal
-  draft → approve → send flow under human review.
+- Any re-target or re-send after a bounce: a bounced startup is terminal in this
+  phase. Re-targeting another contact (relaxing the `draft_startup` guard,
+  skipping bounced contacts in selection, re-draft → approve → send under human
+  review) belongs to the re-send/follow-up phase.
