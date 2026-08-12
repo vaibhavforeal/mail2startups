@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db import get_engine, init_db, make_session
 from app.models import (
     CampaignState, InboxKind, InboxMessage, ReplyLabel, Startup, StartupStatus,
@@ -45,8 +45,12 @@ def test_campaign_state_uid_watermark_defaults():
         assert st.last_imap_uid == 0 and st.imap_uidvalidity == 0
 
 
-def test_settings_inbox_defaults():
-    s = get_settings()
+def test_settings_inbox_defaults(monkeypatch):
+    monkeypatch.delenv("M2S_IMAP_HOST", raising=False)
+    monkeypatch.delenv("M2S_IMAP_PORT", raising=False)
+    monkeypatch.delenv("M2S_IMAP_MAILBOX", raising=False)
+    monkeypatch.delenv("M2S_NO_RESPONSE_DAYS", raising=False)
+    s = Settings(_env_file=None)
     assert s.imap_host == "imap.hostinger.com"
     assert s.imap_port == 993
     assert s.imap_mailbox == "INBOX"

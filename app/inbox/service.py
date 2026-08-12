@@ -140,6 +140,10 @@ def poll_inbox(session: Session, *, imap, classifier, now, settings,
         bounce = detect_bounce(fm, sent_by_message_id=sent_by_message_id)
         if bounce is not None:
             startup_id, message_id = bounce
+            startup = session.get(Startup, startup_id)
+            if startup is not None and startup.status in (
+                    StartupStatus.REPLIED, StartupStatus.BOUNCED):
+                continue
             bounces += 1
             if not dry_run:
                 _record_bounce(session, fm, startup_id, message_id)

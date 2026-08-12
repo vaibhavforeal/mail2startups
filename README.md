@@ -88,7 +88,7 @@ m2s inbox                    # record replies/bounces; sweep stale sends to no_r
 m2s inbox --limit 50         # cap messages processed this run
 ```
 
-`m2s inbox` fetches unseen mail read-only by IMAP UID (it never marks messages
+`m2s inbox` fetches new mail read-only by IMAP UID (it never marks messages
 read), matches each to a sent `Message` via `In-Reply-To`/`References` (with a
 from-address fallback), and advances status:
 

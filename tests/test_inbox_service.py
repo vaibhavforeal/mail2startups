@@ -130,3 +130,45 @@ def test_dry_run_mutates_nothing(session):
     assert s.status == StartupStatus.SENT          # unchanged
     assert session.scalars(select(InboxMessage)).all() == []
     assert ensure_state(session).last_imap_uid == 0
+
+
+def test_bounce_does_not_readvance_replied_startup(session):
+    s, c, d, m = _seed_sent(session, "A", "a.io", "<out-1@d.com>", sent_at=NOW)
+    # First poll: a reply that matches (startup becomes REPLIED)
+    reply = _fetched(10, "<in-1@a.io>", from_addr="c@a.io", subject="Re: Hi",
+                     in_reply_to="<out-1@d.com>", body_text="Yes!")
+    poll_inbox(session, imap=FakeImap([reply]), classifier=_interested,
+               now=NOW, settings=_settings())
+    session.refresh(s)
+    assert s.status == StartupStatus.REPLIED
+    # Second poll: a DSN with a new distinct imap_message_id but same smtp_message_id
+    dsn = _fetched(11, "<dsn-1@mail>", from_addr="mailer-daemon@a.io",
+                   subject="Undelivered Mail",
+                   raw="550 failed; original message <out-1@d.com>",
+                   body_text="delivery failed")
+    res = poll_inbox(session, imap=FakeImap([dsn]), classifier=_interested,
+                     now=NOW, settings=_settings())
+    # Assert: startup status is STILL REPLIED, not BOUNCED
+    session.refresh(s)
+    assert s.status == StartupStatus.REPLIED
+    assert res.bounces == 0
+    # No InboxMessage of kind BOUNCE exists
+    bounce_msgs = session.scalars(
+        select(InboxMessage).where(InboxMessage.kind == InboxKind.BOUNCE)).all()
+    assert len(bounce_msgs) == 0
+
+
+def test_reply_via_from_address_fallback_records_null_message_id(session):
+    s, c, d, m = _seed_sent(session, "B", "b.io", "<out-1@d.com>", sent_at=NOW)
+    # Poll a reply whose in_reply_to/references do NOT match any sent smtp id,
+    # but whose from_addr equals the contact email
+    fm = _fetched(12, "<in-2@b.io>", from_addr="c@b.io", subject="Re: Hi",
+                  in_reply_to="<nonexistent@x>", body_text="Interested!")
+    res = poll_inbox(session, imap=FakeImap([fm]), classifier=_interested,
+                     now=NOW, settings=_settings())
+    assert res.replies == 1
+    session.refresh(s)
+    assert s.status == StartupStatus.REPLIED
+    im = session.scalars(select(InboxMessage)).one()
+    assert im.message_id is None
+    assert im.matched_message_id is None

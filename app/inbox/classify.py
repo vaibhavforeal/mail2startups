@@ -34,7 +34,7 @@ def classify_reply(client, text: str, *, model: str | None = None) -> ReplyLabel
             model=model, max_tokens=MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}])
         raw = resp.content[0].text.strip().lower()
-    except (anthropic.AnthropicError, ValueError):
+    except (anthropic.AnthropicError, ValueError, IndexError, AttributeError, TypeError):
         return ReplyLabel.OTHER
     for needle, label in _KEYWORDS:
         if needle in raw:

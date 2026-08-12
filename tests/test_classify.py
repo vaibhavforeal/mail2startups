@@ -48,3 +48,28 @@ def test_classify_error_falls_back_to_other():
     client = _Client(exc=anthropic.AnthropicError("boom"))
     assert classify_reply(client, "anything", model="m") is ReplyLabel.OTHER
     assert client.messages.calls == 1
+
+
+class _EmptyContentResp:
+    def __init__(self):
+        self.content = []
+
+
+class _MessagesEmptyContent:
+    def __init__(self):
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        return _EmptyContentResp()
+
+
+class _ClientEmptyContent:
+    def __init__(self):
+        self.messages = _MessagesEmptyContent()
+
+
+def test_classify_malformed_response_falls_back_to_other():
+    client = _ClientEmptyContent()
+    assert classify_reply(client, "hi", model="m") is ReplyLabel.OTHER
+    assert client.messages.calls == 1
