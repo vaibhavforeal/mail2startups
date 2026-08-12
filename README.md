@@ -3,7 +3,8 @@
 Automated internship outreach: discover startups, hunt contact emails,
 AI-tailor resumes and emails, drip-send via Hostinger, track replies.
 
-**Status: Phase 2 (email hunting & enrichment) complete.**
+**Status: Phase 6 (follow-ups) complete** — the full loop runs end to end:
+discover → hunt → draft → send → track replies/bounces → one follow-up → give up.
 Spec: `docs/superpowers/specs/2026-08-11-mail2startups-design.md`
 
 ## Setup
@@ -54,6 +55,25 @@ Hunting is idempotent: each run processes only startups still in `discovered`
 status and advances them to `enriched`. Paid enrichment (Hunter, ~25/mo free)
 is consulted only when site crawling and pattern guessing find no usable
 contact, and remaining monthly credits are tracked in the database.
+
+## Drafting (Phase 3)
+
+Generate a tailored email and a rendered resume PDF for each enriched startup.
+Each draft lands in `pending_review` for you to inspect before approving. The
+Claude backend is chosen from your credentials (see "Drafting backend" above);
+the resume comes from `M2S_RESUME_PATH`.
+
+```bash
+m2s draft                      # draft for all enriched startups (advances → drafted)
+m2s draft --startup acme.com   # draft a single company by domain
+m2s draft --dry-run            # preview each plan (mode/angle/subject); write nothing
+m2s drafts list                # list generated drafts: id, startup, mode, pdf?, subject
+m2s drafts show 12             # print a draft's subject, body, and resume PDF path
+```
+
+Drafting is idempotent: each run processes only startups still in `enriched`
+status. A resume PDF is attached only in `formal` mode; `casual` drafts (and all
+follow-ups) go without one. Approve and send drafts with the Phase 4 commands.
 
 ## Sending (Phase 4)
 
