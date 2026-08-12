@@ -8,6 +8,9 @@ from app.draft.claude_draft import draft_plan
 from app.draft.resume_schema import load_resume
 from app.draft.service import draft_all, draft_one, select_primary_contact
 from app.enrich.hunter import HunterClient
+from app.inbox.classify import classify_reply
+from app.inbox.imap_client import HostingerImap
+from app.inbox.service import poll_inbox
 from app.models import Contact, Draft, Startup, StartupStatus
 from app.scraper.hunt import hunt_all, hunt_startup
 from app.scraper.ingest import ingest_records
@@ -207,6 +210,19 @@ def _build_transport(settings):
                          settings.smtp_user, settings.smtp_password)
 
 
+def _build_imap(settings):
+    return HostingerImap(
+        settings.imap_host, settings.imap_port,
+        settings.imap_user or settings.smtp_user,
+        settings.imap_password or settings.smtp_password)
+
+
+def _build_classifier(settings):
+    from app.draft.claude_draft import resolve_backend
+    client, model = resolve_backend()
+    return lambda text: classify_reply(client, text, model=model)
+
+
 def _dns_resolve(name: str, rtype: str) -> list[str]:
     import dns.exception
     import dns.resolver
@@ -259,6 +275,39 @@ def send(
     for r in results:
         typer.echo(f"  draft {r.draft_id}: {'sent' if r.sent else 'skip'} ({r.reason or 'ok'})")
     typer.echo(f"send: attempted={len(results)} sent={sent}")
+
+
+@app.command()
+def inbox(
+    limit: int = typer.Option(None, help="Max inbound messages to process this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Match + classify; change nothing"),
+):
+    """Poll the IMAP inbox once: record replies/bounces, sweep stale sends."""
+    import imaplib
+    settings = get_settings()
+    user = settings.imap_user or settings.smtp_user
+    password = settings.imap_password or settings.smtp_password
+    if not user or not password:
+        typer.echo("Error: set M2S_IMAP_USER/M2S_IMAP_PASSWORD "
+                   "(or M2S_SMTP_USER/M2S_SMTP_PASSWORD) in .env", err=True)
+        raise typer.Exit(code=1)
+    imap = _build_imap(settings)
+    try:
+        classifier = _build_classifier(settings)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    now = datetime.now(timezone.utc)
+    try:
+        with _session() as session:
+            result = poll_inbox(session, imap=imap, classifier=classifier,
+                                now=now, settings=settings, limit=limit,
+                                dry_run=dry_run)
+    except (imaplib.IMAP4.error, OSError) as exc:
+        typer.echo(f"Error: IMAP fetch failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"inbox: fetched={result.fetched} replies={result.replies} "
+               f"bounces={result.bounces} no_response={result.no_response}")
 
 
 @app.command()

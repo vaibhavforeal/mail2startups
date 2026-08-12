@@ -77,6 +77,31 @@ command. Three consecutive SMTP failures auto-pause the campaign.
 Set the SMTP block in `.env` (see `.env.example`); `M2S_DKIM_SELECTOR` comes from
 your Hostinger DNS panel.
 
+## Inbox (Phase 5)
+
+Close the read side of the loop: poll the mailbox, record replies and bounces,
+and age out silent sends.
+
+```bash
+m2s inbox --dry-run          # match + classify inbound mail, change nothing
+m2s inbox                    # record replies/bounces; sweep stale sends to no_response
+m2s inbox --limit 50         # cap messages processed this run
+```
+
+`m2s inbox` fetches unseen mail read-only by IMAP UID (it never marks messages
+read), matches each to a sent `Message` via `In-Reply-To`/`References` (with a
+from-address fallback), and advances status:
+
+- **reply** → startup `replied`, classified by Claude (interested / rejection /
+  auto-reply / other), stored in `inbox_messages`.
+- **bounce** (MAILER-DAEMON / DSN) → message `bounced`, the contact demoted, and
+  the startup `bounced` (terminal in this phase — re-targeting is a later phase).
+- **no reply after `M2S_NO_RESPONSE_DAYS`** (default 14) → startup `no_response`.
+
+It is one-shot and idempotent — schedule it every ~10 min during the send window
+(Windows Task Scheduler / cron). Set the IMAP block in `.env` (see
+`.env.example`); blank IMAP creds fall back to the SMTP credentials.
+
 ## Tests
 
 ```bash
