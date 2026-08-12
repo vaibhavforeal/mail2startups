@@ -142,3 +142,14 @@ class EnrichmentUsage(Base):
     provider: Mapped[str] = mapped_column(String(50))
     period: Mapped[str] = mapped_column(String(7))  # YYYY-MM
     calls: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class CampaignState(Base):
+    __tablename__ = "campaign_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # singleton, id=1
+    paused: Mapped[bool] = mapped_column(default=False)
+    paused_reason: Mapped[str] = mapped_column(String(200), default="")
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    first_send_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
