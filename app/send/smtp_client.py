@@ -7,14 +7,21 @@ from typing import Protocol
 
 
 def build_email(*, from_email: str, from_name: str, to: str, subject: str,
-                body: str, pdf_path: str | None) -> EmailMessage:
+                body: str, pdf_path: str | None,
+                in_reply_to: str | None = None,
+                references: str | None = None) -> EmailMessage:
     """Build a plain-text email; attach the PDF when pdf_path is set.
-    Sets a generated Message-ID header for later reply matching."""
+    Sets a generated Message-ID header for later reply matching. When
+    in_reply_to/references are given, threads the mail onto that Message-ID."""
     msg = EmailMessage()
     msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
     msg["To"] = to
     msg["Subject"] = subject
     msg["Message-ID"] = make_msgid()
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+    if references:
+        msg["References"] = references
     msg.set_content(body)
     if pdf_path:
         data = Path(pdf_path).read_bytes()

@@ -63,8 +63,7 @@ def _eligible_drafts(session: Session, limit: int) -> list[Draft]:
         .join(Startup, Draft.startup_id == Startup.id)
         .where(Draft.status == DraftStatus.APPROVED,
                Startup.status == StartupStatus.QUEUED,
-               Draft.id.not_in(
-                   select(Message.draft_id).where(Message.type == MessageType.INITIAL)))
+               Draft.id.not_in(select(Message.draft_id)))
         .order_by(Draft.id)
         .limit(limit)
     ).all()
@@ -109,11 +108,22 @@ def _send_one(session: Session, draft: Draft, *, now, transport, settings,
         session.commit()
         return SendResult(did, False, "no_recipient")
 
+    in_reply_to = None
+    if draft.type == MessageType.FOLLOWUP:
+        in_reply_to = session.scalar(
+            select(Message.smtp_message_id)
+            .join(Draft, Message.draft_id == Draft.id)
+            .where(Draft.startup_id == sid,
+                   Message.type == MessageType.INITIAL,
+                   Message.smtp_message_id.is_not(None))
+            .order_by(Message.id).limit(1))
+
     msg = build_email(
         from_email=settings.from_email or settings.smtp_user,
         from_name=settings.from_name, to=to_addr, subject=draft.subject,
         body=draft.body,
-        pdf_path=draft.resume_pdf_path if draft.mode == DraftMode.FORMAL else None)
+        pdf_path=draft.resume_pdf_path if draft.mode == DraftMode.FORMAL else None,
+        in_reply_to=in_reply_to, references=in_reply_to)
     try:
         message_id = transport.send(msg)
     except (smtplib.SMTPException, OSError) as exc:
@@ -132,7 +142,7 @@ def _send_one(session: Session, draft: Draft, *, now, transport, settings,
         session.commit()
         return SendResult(did, True, "dry_run")
 
-    session.add(Message(draft_id=did, type=MessageType.INITIAL, sent_at=now,
+    session.add(Message(draft_id=did, type=draft.type, sent_at=now,
                         smtp_message_id=message_id, status=MessageStatus.SENT))
     startup = session.get(Startup, sid)
     if startup is not None:
