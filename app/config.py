@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     imap_password: str = ""
     imap_mailbox: str = "INBOX"
     no_response_days: int = 14
+    followup_delay_days: int = 5
 
 
 def get_settings() -> Settings:

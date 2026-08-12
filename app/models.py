@@ -109,6 +109,10 @@ class Draft(Base):
         Enum(DraftMode, values_callable=lambda e: [m.value for m in e]),
         default=DraftMode.FORMAL,
     )
+    type: Mapped[MessageType] = mapped_column(
+        Enum(MessageType, values_callable=lambda e: [m.value for m in e]),
+        default=MessageType.INITIAL,
+    )
     subject: Mapped[str] = mapped_column(String(300), default="")
     body: Mapped[str] = mapped_column(Text, default="")
     resume_pdf_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
