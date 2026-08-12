@@ -94,9 +94,12 @@ def build_prompt(startup, contact, resume: Resume) -> str:
     )
 
 
-def draft_plan(startup, contact, resume: Resume, *, client=None) -> DraftPlan:
-    client = client or anthropic.Anthropic()
-    model = get_settings().anthropic_model
+def draft_plan(startup, contact, resume: Resume, *, client=None, model=None) -> DraftPlan:
+    if client is None:
+        client, resolved = resolve_backend()
+        model = model or resolved
+    else:
+        model = model or get_settings().anthropic_model
     prompt = build_prompt(startup, contact, resume)
     for attempt in range(2):
         content = prompt

@@ -70,3 +70,55 @@ def test_no_backend_configured_raises(monkeypatch):
     _clear_foundry(monkeypatch)
     with pytest.raises(ValueError, match="No drafting backend configured"):
         resolve_backend()
+
+
+import types
+from pathlib import Path
+
+from app.draft import claude_draft
+from app.draft.claude_draft import DraftPlan, draft_plan
+from app.draft.resume_schema import load_resume
+
+_FIXTURE = Path(__file__).parent / "fixtures" / "resume_min.yaml"
+
+
+class _RecordingMessages:
+    def __init__(self, plan):
+        self._plan = plan
+        self.kwargs = None
+
+    def parse(self, **kwargs):
+        self.kwargs = kwargs
+        return types.SimpleNamespace(parsed_output=self._plan)
+
+
+class _RecordingClient:
+    def __init__(self, plan):
+        self.messages = _RecordingMessages(plan)
+
+
+class _Startup:
+    name = "Globex"
+    description = "AI infra"
+    industry = "devtools"
+    team_size = 5
+
+
+class _Contact:
+    name = "Priya Nair"
+    role = "CTO"
+
+
+def test_draft_plan_routes_resolved_model(monkeypatch):
+    plan = DraftPlan(
+        mode="formal", angle="ai", experience_ids=["e_intern"],
+        project_ids=["p_ai"], summary="s", skill_order=["Python"],
+        subject="Intern application", body="hi",
+    )
+    fake = _RecordingClient(plan)
+    monkeypatch.setattr(
+        claude_draft, "resolve_backend", lambda: (fake, "deployment-x")
+    )
+    result = draft_plan(_Startup(), _Contact(), load_resume(_FIXTURE), client=None)
+    assert result.mode == "formal"
+    assert fake.messages.kwargs["model"] == "deployment-x"

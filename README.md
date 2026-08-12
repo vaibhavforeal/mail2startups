@@ -14,6 +14,20 @@ python -m venv .venv
 cp .env.example .env   # then fill in ANTHROPIC_API_KEY etc.
 ```
 
+## Drafting backend (Anthropic or Azure Foundry)
+
+`m2s draft` picks a Claude backend from whichever credentials are set:
+
+- **`ANTHROPIC_API_KEY` present** → the direct Anthropic API (default).
+- **Absent, Foundry configured** → a Claude deployment in Azure AI Foundry
+  (`M2S_AZURE_FOUNDRY_API_KEY` + `M2S_AZURE_FOUNDRY_RESOURCE`, deployment name
+  in `M2S_AZURE_FOUNDRY_MODEL`; `M2S_AZURE_FOUNDRY_BASE_URL` overrides the
+  endpoint if needed).
+- **Neither** → `m2s draft` reports a configuration error.
+
+The Foundry deployment must be **"Hosted on Anthropic"** — the "Hosted on
+Azure" option rejects the structured-output request drafting relies on.
+
 ## Usage
 
 ```bash
