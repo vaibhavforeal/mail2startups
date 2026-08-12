@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Literal
 
 import anthropic
@@ -51,6 +52,33 @@ _PROMPT = (
     "(skill_order). Write an email subject and a body matching the mode: plain "
     "tone, reference something concrete about the startup, no flattery."
 )
+
+
+def resolve_backend() -> tuple[anthropic.Anthropic, str]:
+    """Pick the drafting client and model.
+
+    Direct Anthropic when ANTHROPIC_API_KEY is set; otherwise Azure AI Foundry
+    when a Foundry key and endpoint (resource or base_url) are configured.
+    Config-time selection only. Raises ValueError when neither is configured.
+    """
+    settings = get_settings()
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return anthropic.Anthropic(), settings.anthropic_model
+    if settings.azure_foundry_api_key and (
+        settings.azure_foundry_resource or settings.azure_foundry_base_url
+    ):
+        kwargs: dict = {"api_key": settings.azure_foundry_api_key}
+        if settings.azure_foundry_resource:
+            kwargs["resource"] = settings.azure_foundry_resource
+        else:
+            kwargs["base_url"] = settings.azure_foundry_base_url
+        model = settings.azure_foundry_model or settings.anthropic_model
+        return anthropic.AnthropicFoundry(**kwargs), model
+    raise ValueError(
+        "No drafting backend configured: set ANTHROPIC_API_KEY, or "
+        "M2S_AZURE_FOUNDRY_API_KEY with M2S_AZURE_FOUNDRY_RESOURCE "
+        "(or M2S_AZURE_FOUNDRY_BASE_URL)."
+    )
 
 
 def build_prompt(startup, contact, resume: Resume) -> str:

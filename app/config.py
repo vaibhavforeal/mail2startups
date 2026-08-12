@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/m2s.db")
     resume_path: Path = Path("data/resume.yaml")
     anthropic_model: str = "claude-opus-5"
+    azure_foundry_api_key: str = ""
+    azure_foundry_resource: str = ""
+    azure_foundry_base_url: str = ""
+    azure_foundry_model: str = ""
     product_hunt_token: str = ""
     exa_api_key: str = ""
     hunter_api_key: str = ""
