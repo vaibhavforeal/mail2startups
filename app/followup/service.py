@@ -79,24 +79,26 @@ def draft_followups(session: Session, *, resume, now, settings,
         if initial is None:
             continue
         sid = s.id
+        if dry_run:
+            results.append(FollowupResult(sid, True))
+            made += 1
+            continue
         try:
             plan: FollowupPlan = generator(s, resume, initial.subject, initial.body)
         except (MalformedFollowupError, anthropic.AnthropicError, ValueError) as exc:
             session.rollback()
-            if not dry_run:
-                _log_failed(session, sid, "provider_error", detail=str(exc))
+            _log_failed(session, sid, "provider_error", detail=str(exc))
             results.append(FollowupResult(sid, False))
             continue
-        if not dry_run:
-            subj = initial.subject if initial.subject.lower().startswith("re:") \
-                else "Re: " + initial.subject
-            session.add(Draft(
-                startup_id=sid, contact_id=initial.contact_id,
-                type=MessageType.FOLLOWUP, mode=DraftMode.CASUAL,
-                subject=subj, body=plan.body, resume_pdf_path=None,
-                status=DraftStatus.PENDING_REVIEW))
-            session.add(Event(startup_id=sid, kind="followup_drafted", payload={}))
-            session.commit()
+        subj = initial.subject if initial.subject.lower().startswith("re:") \
+            else "Re: " + initial.subject
+        session.add(Draft(
+            startup_id=sid, contact_id=initial.contact_id,
+            type=MessageType.FOLLOWUP, mode=DraftMode.CASUAL,
+            subject=subj, body=plan.body, resume_pdf_path=None,
+            status=DraftStatus.PENDING_REVIEW))
+        session.add(Event(startup_id=sid, kind="followup_drafted", payload={}))
+        session.commit()
         results.append(FollowupResult(sid, True))
         made += 1
     return results

@@ -110,3 +110,16 @@ def test_followup_dry_run_persists_nothing(session):
     assert results == [FollowupResult(s.id, True)]
     assert session.scalars(
         select(Draft).where(Draft.type == MessageType.FOLLOWUP)).all() == []
+
+
+def test_followup_dry_run_skips_generator(session):
+    s, c, d = _sent_startup(session, "G", "g.io", sent_at=NOW - timedelta(days=6))
+
+    def _boom(*a, **k):
+        raise AssertionError("generator should not be called on dry-run")
+
+    results = draft_followups(session, resume=_resume(), now=NOW,
+                              settings=_settings(), generator=_boom, dry_run=True)
+    assert results == [FollowupResult(s.id, True)]
+    assert session.scalars(
+        select(Draft).where(Draft.type == MessageType.FOLLOWUP)).all() == []

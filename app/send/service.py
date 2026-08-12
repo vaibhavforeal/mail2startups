@@ -25,20 +25,30 @@ class SendResult:
 def approve_drafts(session: Session, ids: list[int] | None = None, *,
                    all_pending: bool = False) -> int:
     """Approve drafts by id (or every pending_review draft). Moves each
-    Draft→approved and its Startup→queued. Returns the count approved."""
+    Draft→approved and its Startup→queued. Returns the count approved.
+    A draft whose startup has since replied or bounced is skipped — a reply
+    landing while a follow-up awaited review must not be re-contacted."""
     query = select(Draft).where(Draft.status == DraftStatus.PENDING_REVIEW)
     if not all_pending:
         query = query.where(Draft.id.in_(ids or []))
     drafts = session.scalars(query).all()
+    approved = 0
     for draft in drafts:
-        draft.status = DraftStatus.APPROVED
         startup = session.get(Startup, draft.startup_id)
+        if startup is not None and startup.status in (
+                StartupStatus.REPLIED, StartupStatus.BOUNCED):
+            session.add(Event(startup_id=draft.startup_id, kind="approve_skipped",
+                              payload={"draft_id": draft.id,
+                                       "reason": startup.status.value}))
+            continue
+        draft.status = DraftStatus.APPROVED
         if startup is not None:
             startup.status = StartupStatus.QUEUED
         session.add(Event(startup_id=draft.startup_id, kind="approved",
                           payload={"draft_id": draft.id}))
+        approved += 1
     session.commit()
-    return len(drafts)
+    return approved
 
 
 def reject_drafts(session: Session, ids: list[int]) -> int:
