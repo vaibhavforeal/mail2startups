@@ -40,7 +40,8 @@ class SmtpTransport:
 
     def send(self, msg: EmailMessage) -> str:
         context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(self._host, self._port, context=context) as smtp:
+        with smtplib.SMTP_SSL(self._host, self._port, context=context,
+                              timeout=30) as smtp:
             smtp.login(self._user, self._password)
             smtp.send_message(msg)
         return msg["Message-ID"]

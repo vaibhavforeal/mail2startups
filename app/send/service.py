@@ -99,6 +99,11 @@ def _send_one(session: Session, draft: Draft, *, now, transport, settings,
     contact = session.get(Contact, draft.contact_id) if draft.contact_id else None
     to_addr = settings.test_recipient if dry_run else (contact.email if contact else None)
     if not to_addr:
+        # No usable recipient: mark the startup dead so it leaves the eligible
+        # set — otherwise a limit=1 queue re-selects this same draft forever.
+        startup = session.get(Startup, sid)
+        if startup is not None:
+            startup.status = StartupStatus.DEAD
         session.add(Event(startup_id=sid, kind="send_failed",
                           payload={"draft_id": did, "reason": "no_recipient"}))
         session.commit()

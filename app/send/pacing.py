@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -10,6 +10,14 @@ from app.models import Message, MessageStatus
 def _parse_hhmm(value: str) -> time:
     hh, mm = value.split(":")
     return time(int(hh), int(mm))
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """SQLite round-trips DateTime(timezone=True) as tz-naive. A naive value
+    read back from the DB is UTC (we always store UTC), so pin it to UTC
+    before converting — otherwise .astimezone() reads it as host-local time
+    and mis-dates the instant near the UTC↔local boundary."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def is_within_window(now: datetime, *, start_hhmm: str, end_hhmm: str, tz: str) -> bool:
@@ -26,7 +34,7 @@ def effective_daily_cap(now: datetime, first_send_at: datetime | None, *,
     if first_send_at is None:
         return ramp_cap
     elapsed = (now.astimezone(ZoneInfo(tz)).date()
-               - first_send_at.astimezone(ZoneInfo(tz)).date()).days
+               - _as_utc(first_send_at).astimezone(ZoneInfo(tz)).date()).days
     return ramp_cap if elapsed < ramp_days else daily_cap
 
 
@@ -36,7 +44,7 @@ def sent_today(session: Session, now: datetime, *, tz: str) -> int:
     rows = session.scalars(
         select(Message.sent_at).where(Message.status == MessageStatus.SENT)).all()
     return sum(1 for ts in rows
-               if ts is not None and ts.astimezone(ZoneInfo(tz)).date() == today)
+               if ts is not None and _as_utc(ts).astimezone(ZoneInfo(tz)).date() == today)
 
 
 def budget_remaining(session: Session, now: datetime, first_send_at: datetime | None, *,

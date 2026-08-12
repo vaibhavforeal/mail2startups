@@ -57,6 +57,27 @@ def test_sent_today_counts_only_today(session):
     assert sent_today(session, now, tz=IST) == 1
 
 
+def test_sent_today_treats_stored_naive_ts_as_utc(session):
+    # SQLite round-trips sent_at as tz-naive. 2026-08-12 20:00 UTC is
+    # 2026-08-13 01:30 IST — it must count as IST "today" 2026-08-13, not be
+    # mis-read as host-local wall time. (Strict guard on non-UTC hosts.)
+    now = _utc(2026, 8, 13, 5, 0)  # 10:30 IST on 2026-08-13
+    session.add(Message(draft_id=1, status=MessageStatus.SENT,
+                        sent_at=_utc(2026, 8, 12, 20, 0)))
+    session.commit()
+    assert sent_today(session, now, tz=IST) == 1
+
+
+def test_effective_cap_naive_first_send_at_treated_as_utc():
+    # first_send_at read back from SQLite is naive. 2026-08-06 20:00 UTC is
+    # 2026-08-07 IST; with now on 2026-08-13 IST, elapsed is 6 days → still
+    # ramp. Mis-reading the naive value as host-local gives 7 → steady.
+    first_naive = datetime(2026, 8, 6, 20, 0)  # naive, as read back from the DB
+    now = _utc(2026, 8, 12, 20, 0)             # 2026-08-13 01:30 IST
+    assert effective_daily_cap(now, first_naive, daily_cap=30, ramp_cap=15,
+                               ramp_days=7, tz=IST) == 15
+
+
 def test_budget_remaining_floors_at_zero(session):
     now = _utc(2026, 8, 12, 6, 0)
     for i in range(3):

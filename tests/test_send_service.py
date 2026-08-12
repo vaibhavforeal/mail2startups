@@ -158,6 +158,37 @@ def test_force_bypasses_window(session):
     assert results[0].sent is True and len(t.sent) == 1
 
 
+def _queued_no_email(session, name, domain):
+    s = Startup(name=name, domain=domain, source="yc", status=StartupStatus.DRAFTED)
+    session.add(s)
+    session.commit()
+    c = Contact(startup_id=s.id, name="C", role="CTO", email="",
+                found_via="scraped", confidence=0.9, verified=True)
+    session.add(c)
+    session.commit()
+    d = Draft(startup_id=s.id, contact_id=c.id, mode=DraftMode.FORMAL,
+              subject="Hi", body="Hello", resume_pdf_path=None,
+              status=DraftStatus.PENDING_REVIEW)
+    session.add(d)
+    session.commit()
+    approve_drafts(session, [d.id])
+    return s, d
+
+
+def test_no_recipient_marks_startup_dead_and_unwedges_queue(session):
+    dead_s, dead_d = _queued_no_email(session, "NoEmail", "noemail.io")  # lower id
+    good_s, good_d = _queued(session, "Good", "good.io")                 # higher id
+    t = _Recorder()
+    first = send_batch(session, now=NOW, transport=t, settings=_settings())  # limit=1
+    assert first[0].draft_id == dead_d.id and first[0].sent is False
+    assert first[0].reason == "no_recipient"
+    assert dead_s.status == StartupStatus.DEAD and t.sent == []
+    # queue advanced: the good draft is now the head and sends
+    second = send_batch(session, now=NOW, transport=t, settings=_settings())
+    assert second[0].draft_id == good_d.id and second[0].sent is True
+    assert good_s.status == StartupStatus.SENT
+
+
 def test_send_test_emails_to_self(session):
     t = _Recorder()
     n = send_test_emails(session, transport=t,
