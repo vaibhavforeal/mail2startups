@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     ramp_daily_cap: int = 15
     ramp_days: int = 7
     dkim_selector: str = ""
+    # IMAP / inbox (Phase 5) — Hostinger mailbox; blank IMAP creds fall back to SMTP
+    imap_host: str = "imap.hostinger.com"
+    imap_port: int = 993
+    imap_user: str = ""
+    imap_password: str = ""
+    imap_mailbox: str = "INBOX"
+    no_response_days: int = 14
 
 
 def get_settings() -> Settings:

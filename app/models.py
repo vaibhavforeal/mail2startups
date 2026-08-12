@@ -50,6 +50,18 @@ class MessageStatus(str, enum.Enum):
     REPLIED = "replied"
 
 
+class InboxKind(str, enum.Enum):
+    REPLY = "reply"
+    BOUNCE = "bounce"
+
+
+class ReplyLabel(str, enum.Enum):
+    INTERESTED = "interested"
+    REJECTION = "rejection"
+    AUTO_REPLY = "auto_reply"
+    OTHER = "other"
+
+
 class Startup(Base):
     __tablename__ = "startups"
 
@@ -134,6 +146,31 @@ class Event(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class InboxMessage(Base):
+    __tablename__ = "inbox_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    startup_id: Mapped[int] = mapped_column(ForeignKey("startups.id"))
+    message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("messages.id"), nullable=True)
+    kind: Mapped[InboxKind] = mapped_column(
+        Enum(InboxKind, values_callable=lambda e: [m.value for m in e]))
+    imap_message_id: Mapped[str] = mapped_column(String(255), unique=True)
+    imap_uid: Mapped[int] = mapped_column(Integer, default=0)
+    from_addr: Mapped[str] = mapped_column(String(255), default="")
+    subject: Mapped[str] = mapped_column(String(500), default="")
+    snippet: Mapped[str] = mapped_column(Text, default="")
+    label: Mapped[ReplyLabel | None] = mapped_column(
+        Enum(ReplyLabel, values_callable=lambda e: [m.value for m in e]),
+        nullable=True)
+    matched_message_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow)
+
+
 class EnrichmentUsage(Base):
     __tablename__ = "enrichment_usage"
     __table_args__ = (UniqueConstraint("provider", "period", name="uq_provider_period"),)
@@ -153,3 +190,5 @@ class CampaignState(Base):
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
     first_send_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
+    last_imap_uid: Mapped[int] = mapped_column(Integer, default=0)
+    imap_uidvalidity: Mapped[int] = mapped_column(Integer, default=0)
